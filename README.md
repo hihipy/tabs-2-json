@@ -6,7 +6,7 @@
 **Built with**
 
 [![Chrome](https://img.shields.io/badge/Chrome-4285F4?style=flat&logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions)
-[![CSS3](https://img.shields.io/badge/CSS3-663399?style=flat&logo=css&logoColor=white)](https://developer.mozilla.org/en-US/docs/Web/CSS)
+[![CSS3](https://img.shields.io/badge/CSS3-1572B6?style=flat&logo=css&logoColor=white)](https://developer.mozilla.org/en-US/docs/Web/CSS)
 [![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=flat&logo=html5&logoColor=white)](https://developer.mozilla.org/en-US/docs/Web/HTML)
 [![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=flat&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![JSON](https://img.shields.io/badge/JSON-000000?style=flat&logo=json&logoColor=white)](https://www.json.org/)
@@ -157,6 +157,18 @@ The options page is built with the [`options_ui`](https://developer.chrome.com/d
 - Output: pretty-print or compact JSON.
 
 Settings save automatically and apply on the next export.
+
+---
+
+## Development
+
+There is no build step; the extension runs the source directly. The popup and options pages share their pure logic through `src/lib/extract.js`.
+
+Unit tests cover that shared logic and run on [Node](https://nodejs.org/) with no dependencies:
+
+    node test/unit.mjs
+
+The checks that need a DOM (`stripHtml` and the markup path of `sanitizeStructured`) are skipped in plain Node and run in a browser or under [jsdom](https://github.com/jsdom/jsdom).
 
 ---
 
