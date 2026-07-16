@@ -85,6 +85,52 @@ On failure, the record has `id`, `title`, `url`, `captured_at`, `ok` set to `fal
 - Treat `low_signal` and a `content_type` of `video` as signals to distrust `text` and prefer `structured_data`.
 - `id` is the reliable join key. `url` is not unique once parameters are stripped.
 
+### Example output
+
+A two-tab export, trimmed:
+
+```json
+{
+  "exported_at": "2026-07-16T05:06:39.530Z",
+  "tab_count": 2,
+  "tabs": [
+    {
+      "id": 1490142341,
+      "title": "JSON - Wikipedia",
+      "url": "https://en.wikipedia.org/wiki/JSON",
+      "canonical_url": "https://en.wikipedia.org/wiki/JSON",
+      "language": "en",
+      "content_source": "main",
+      "captured_at": "2026-07-16T05:06:39.493Z",
+      "ok": true,
+      "headings": [
+        { "level": 1, "text": "JSON" },
+        { "level": 2, "text": "Syntax" }
+      ],
+      "structured_data": [
+        { "@context": "https://schema.org", "@type": "Article", "headline": "JSON" }
+      ],
+      "text": "JSON (JavaScript Object Notation) is an open standard file format ...",
+      "word_count": 1863
+    },
+    {
+      "id": 1490142248,
+      "title": "What is JSON? (Explained in 5 minutes) - YouTube",
+      "url": "https://www.youtube.com/watch",
+      "content_source": "ytd-watch-flexy",
+      "content_type": "video",
+      "captured_at": "2026-07-16T05:06:39.501Z",
+      "ok": true,
+      "text": "What is JSON? (Explained in 5 minutes) ...",
+      "word_count": 112,
+      "low_signal": true
+    }
+  ]
+}
+```
+
+The first record is a normal article capture. The second is a video-only page, flagged `content_type: video` and `low_signal: true` so a consumer knows to lean on `structured_data` over `text`.
+
 ---
 
 ## How extraction works
