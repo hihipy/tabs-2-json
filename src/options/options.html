@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Tabs2JSON Settings</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+<main class="page">
+  <header class="page-header">
+    <h1>Tabs2JSON Settings</h1>
+    <p class="lede">Changes save automatically. Close this tab when you are done.</p>
+  </header>
+
+  <section class="group" aria-labelledby="content-heading">
+    <h2 id="content-heading">Content</h2>
+    <label class="row">
+      <input type="checkbox" id="include-text">
+      <span>
+          <span class="row-title">Include Page Text</span>
+          <span class="row-note">The cleaned visible text of each page.</span>
+        </span>
+    </label>
+    <label class="row">
+      <input type="checkbox" id="include-structured">
+      <span>
+          <span class="row-title">Include Structured Data</span>
+          <span class="row-note">Any JSON-LD the page embeds, passed through as-is.</span>
+        </span>
+    </label>
+    <label class="row">
+      <input type="checkbox" id="include-headings">
+      <span>
+          <span class="row-title">Include Headings Outline</span>
+          <span class="row-note">The heading structure of the page content.</span>
+        </span>
+    </label>
+  </section>
+
+  <section class="group" aria-labelledby="video-heading">
+    <h2 id="video-heading">Video Pages</h2>
+    <label class="row">
+      <input type="checkbox" id="trim-video">
+      <span>
+          <span class="row-title">Trim Text On Video-Only Pages</span>
+          <span class="row-note">Video pages carry little useful text, so keep a short snippet and rely on their structured data.</span>
+        </span>
+    </label>
+  </section>
+
+  <section class="group" aria-labelledby="limits-heading">
+    <h2 id="limits-heading">Limits</h2>
+    <label class="row row-inline">
+        <span>
+          <span class="row-title">Maximum Text Characters Per Tab</span>
+          <span class="row-note">Use 0 for no limit.</span>
+        </span>
+      <input type="number" id="max-chars" min="0" step="1000" inputmode="numeric">
+    </label>
+  </section>
+
+  <section class="group" aria-labelledby="privacy-heading">
+    <h2 id="privacy-heading">Privacy</h2>
+    <label class="row">
+      <input type="checkbox" id="strip-params">
+      <span>
+          <span class="row-title">Strip Query Parameters From URLs</span>
+          <span class="row-note">Removes everything after the path, which can carry tokens or personal identifiers.</span>
+        </span>
+    </label>
+    <label class="row row-block" for="blocked-domains">
+        <span>
+          <span class="row-title">Blocked Domains</span>
+          <span class="row-note">One domain per line. The extension will never read pages on these domains.</span>
+        </span>
+    </label>
+    <textarea id="blocked-domains" rows="4" placeholder="example.com&#10;mybank.com"></textarea>
+  </section>
+
+  <section class="group" aria-labelledby="output-heading">
+    <h2 id="output-heading">Output</h2>
+    <label class="row">
+      <input type="checkbox" id="pretty-json">
+      <span>
+          <span class="row-title">Pretty-Print JSON</span>
+          <span class="row-note">Indented and readable. Turn off for a compact single-line file.</span>
+        </span>
+    </label>
+  </section>
+
+  <footer class="page-footer">
+    <span class="saved" id="saved" role="status" aria-live="polite"></span>
+    <span class="footer-hint">Your changes are saved as you make them. Close this tab to return to browsing.</span>
+  </footer>
+</main>
+
+<script src="options.js"></script>
+</body>
+</html>

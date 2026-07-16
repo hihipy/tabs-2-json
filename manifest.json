@@ -1,0 +1,23 @@
+{
+  "manifest_version": 3,
+  "name": "Tabs2JSON",
+  "version": "2026.7.0",
+  "description": "Export full page text and metadata from selected Chrome tabs to JSON.",
+  "permissions": [
+    "tabs",
+    "scripting",
+    "downloads",
+    "storage"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "action": {
+    "default_title": "Tabs2JSON",
+    "default_popup": "src/popup/popup.html"
+  },
+  "options_ui": {
+    "page": "src/options/options.html",
+    "open_in_tab": true
+  }
+}
