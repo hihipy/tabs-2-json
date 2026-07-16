@@ -162,13 +162,18 @@ Settings save automatically and apply on the next export.
 
 ## Development
 
-There is no build step; the extension runs the source directly. The popup and options pages share their pure logic through `src/lib/extract.js`.
+There is no build step and the extension has no runtime dependencies; it runs the source directly. The popup and options pages share their pure logic through `src/lib/extract.js`, and the injected page extractor lives in `src/lib/extractor.js`.
 
-Unit tests cover that shared logic and run on [Node](https://nodejs.org/) with no dependencies:
+Tests come in two suites. The unit suite covers the shared pure logic and runs on [Node](https://nodejs.org/) with no dependencies:
 
     node test/unit.mjs
 
-The checks that need a DOM (`stripHtml` and the markup path of `sanitizeStructured`) are skipped in plain Node and run in a browser or under [jsdom](https://github.com/jsdom/jsdom).
+The extractor suite runs the real injected extractor against fixture HTML under [jsdom](https://github.com/jsdom/jsdom), the one dev dependency, so it needs an install first:
+
+    npm install
+    npm test
+
+`npm test` runs both suites. jsdom is used only for tests; it is never shipped with the extension. Two coverage notes: the checks that need a DOM (`stripHtml` and the markup path of `sanitizeStructured`) are skipped in plain Node and run in a browser or under jsdom; and because jsdom has no `innerText`, the extractor suite approximates it with `textContent`, so it asserts structural behaviour (which content root is chosen, whether leading nav is peeled) rather than exact whitespace semantics.
 
 ---
 
