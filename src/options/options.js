@@ -5,20 +5,9 @@
  * keeps the page theme in sync with the user's preference.
  */
 
-const SETTINGS_KEY = "settings";
-const THEME_KEY = "theme";
+import { SETTINGS_KEY, DEFAULT_SETTINGS, clampInt, parseDomains } from "../lib/extract.js";
 
-/** Default settings, kept in sync with the popup defaults. */
-const DEFAULT_SETTINGS = {
-  includeText: true,
-  includeStructuredData: true,
-  includeHeadings: true,
-  trimVideoText: true,
-  maxTextChars: 0,
-  stripUrlParams: false,
-  blockedDomains: [],
-  prettyJson: true
-};
+const THEME_KEY = "theme";
 
 const el = {
   includeText: document.getElementById("include-text"),
@@ -58,39 +47,6 @@ darkQuery.addEventListener("change", async () => {
     applyTheme("auto");
   }
 });
-
-// ---------------------------------------------------------------------------
-// Parsing helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Parse an integer from a string, clamping to a minimum.
- * @param {string} value
- * @param {number} min
- * @returns {number}
- */
-function clampInt(value, min) {
-  const n = parseInt(value, 10);
-  if (Number.isNaN(n) || n < min) {
-    return min;
-  }
-  return n;
-}
-
-/**
- * Parse a blocked-domains textarea into a clean, deduped list of hostnames.
- * Accepts newline or comma separators and tolerates pasted URLs.
- * @param {string} raw
- * @returns {string[]}
- */
-function parseDomains(raw) {
-  const parts = String(raw || "")
-      .split(/[\n,]/)
-      .map((s) => s.trim().toLowerCase())
-      .filter(Boolean)
-      .map((s) => s.replace(/^https?:\/\//, "").replace(/\/.*$/, ""));
-  return Array.from(new Set(parts));
-}
 
 // ---------------------------------------------------------------------------
 // Load and save

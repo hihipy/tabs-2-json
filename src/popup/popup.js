@@ -7,12 +7,22 @@
  * extension makes no network requests.
  */
 
+import {
+    SETTINGS_KEY,
+    DEFAULT_SETTINGS,
+    isScriptable,
+    isBlocked,
+    outputUrl,
+    isVideoOnly,
+    cleanText,
+    prune,
+    sanitizeStructured,
+    timestampName
+} from "../lib/extract.js";
+
 // ---------------------------------------------------------------------------
 // Constants and module state
 // ---------------------------------------------------------------------------
-
-/** Storage key for the user's export settings. */
-const SETTINGS_KEY = "settings";
 
 /** Storage key for the user's theme preference. */
 const THEME_KEY = "theme";
@@ -28,28 +38,6 @@ const VIDEO_SNIPPET_CHARS = 300;
  * detected reliably without site-specific logic.
  */
 const LOW_SIGNAL_MIN_CHARS = 200;
-
-/** Schema.org types that indicate a page carries real article-style prose. */
-const ARTICLE_TYPES = [
-    "Article",
-    "NewsArticle",
-    "BlogPosting",
-    "TechArticle",
-    "Report",
-    "ScholarlyArticle"
-];
-
-/** Default settings, merged over whatever is found in storage. */
-const DEFAULT_SETTINGS = {
-    includeText: true,
-    includeStructuredData: true,
-    includeHeadings: true,
-    trimVideoText: true,
-    maxTextChars: 0, // 0 means no limit
-    stripUrlParams: false,
-    blockedDomains: [],
-    prettyJson: true
-};
 
 const tabListEl = document.getElementById("tab-list");
 const selectAllEl = document.getElementById("select-all");
@@ -139,214 +127,6 @@ async function initTheme() {
     } catch (err) {
         themeSelect.value = "auto";
     }
-}
-
-// ---------------------------------------------------------------------------
-// URL and domain helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Return true when a URL can be read by a content script.
- * @param {string} url
- * @returns {boolean}
- */
-function isScriptable(url) {
-    return /^(https?|file):/i.test(url || "");
-}
-
-/**
- * Extract the lowercase hostname from a URL, or an empty string on failure.
- * @param {string} url
- * @returns {string}
- */
-function hostOf(url) {
-    try {
-        return new URL(url).hostname.toLowerCase();
-    } catch (err) {
-        return "";
-    }
-}
-
-/**
- * Return true when a URL's host matches one of the blocked domains, either
- * exactly or as a subdomain.
- * @param {string} url
- * @param {string[]} list
- * @returns {boolean}
- */
-function isBlocked(url, list) {
-    const host = hostOf(url);
-    if (!host) {
-        return false;
-    }
-    return list.some((domain) => host === domain || host.endsWith("." + domain));
-}
-
-/**
- * Apply the URL-parameter privacy setting to a URL, dropping the query string
- * and fragment when enabled. The per-tab id field preserves stable identity
- * even when parameters are stripped.
- * @param {string} url
- * @returns {string}
- */
-function outputUrl(url) {
-    if (!url || !settings.stripUrlParams) {
-        return url;
-    }
-    try {
-        const parsed = new URL(url);
-        return parsed.origin + parsed.pathname;
-    } catch (err) {
-        return url;
-    }
-}
-
-// ---------------------------------------------------------------------------
-// Structured-data helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Recursively collect every schema.org @type found in a JSON-LD node,
- * descending into arrays and @graph containers.
- * @param {*} node
- * @param {Set<string>} acc
- */
-function collectTypes(node, acc) {
-    if (!node || typeof node !== "object") {
-        return;
-    }
-    if (Array.isArray(node)) {
-        node.forEach((item) => collectTypes(item, acc));
-        return;
-    }
-    if (node["@graph"]) {
-        collectTypes(node["@graph"], acc);
-    }
-    const type = node["@type"];
-    if (Array.isArray(type)) {
-        type.forEach((t) => acc.add(String(t)));
-    } else if (type) {
-        acc.add(String(type));
-    }
-}
-
-/**
- * Return the set of schema.org types present across all JSON-LD blocks.
- * @param {Array} structured
- * @returns {Set<string>}
- */
-function schemaTypes(structured) {
-    const acc = new Set();
-    (structured || []).forEach((node) => collectTypes(node, acc));
-    return acc;
-}
-
-/**
- * Decide whether a page is video-only, meaning it carries a VideoObject but no
- * article-style content. Such pages have little useful body text.
- * @param {Array} structured
- * @returns {boolean}
- */
-function isVideoOnly(structured) {
-    const types = schemaTypes(structured);
-    const hasVideo = types.has("VideoObject");
-    const hasArticle = ARTICLE_TYPES.some((t) => types.has(t));
-    return hasVideo && !hasArticle;
-}
-
-// ---------------------------------------------------------------------------
-// Text helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Normalise whitespace in extracted text: trim each line and collapse runs of
- * blank lines, without disturbing the block structure.
- * @param {string} text
- * @returns {string}
- */
-function cleanText(text) {
-    return (text || "")
-        .replace(/\r/g, "")
-        .split("\n")
-        .map((line) => line.trim())
-        .join("\n")
-        .replace(/\n{3,}/g, "\n\n")
-        .trim();
-}
-
-/**
- * Remove keys whose values are null, empty strings, or empty arrays, so the
- * output JSON carries only fields the page actually provided. Boolean false is
- * intentionally kept, so flags that should appear only when true are added
- * conditionally by the caller rather than relying on pruning.
- * @param {Object} obj
- * @returns {Object}
- */
-function prune(obj) {
-    const out = {};
-    Object.keys(obj).forEach((key) => {
-        const value = obj[key];
-        if (value == null) {
-            return;
-        }
-        if (typeof value === "string" && value.trim() === "") {
-            return;
-        }
-        if (Array.isArray(value) && value.length === 0) {
-            return;
-        }
-        out[key] = value;
-    });
-    return out;
-}
-
-/** Matches an HTML tag, used to detect markup embedded in JSON-LD strings. */
-const HTML_TAG = /<[a-z!/][^>]*>/i;
-
-/**
- * Reduce an HTML string to its text content, decoding entities and collapsing
- * whitespace. Parsing through DOMParser as text/html does not execute scripts
- * and does not touch the live page. Call only on strings known to contain
- * markup.
- * @param {string} html
- * @returns {string}
- */
-function stripHtml(html) {
-    const doc = new DOMParser().parseFromString(html, "text/html");
-    // Drop elements whose text is not content: style and script carry CSS and
-    // JS, which survive a plain textContent read and would otherwise replace the
-    // markup as noise.
-    doc.querySelectorAll("script, style, noscript, template").forEach((el) => {
-        el.remove();
-    });
-    return (doc.body.textContent || "").replace(/\s+/g, " ").trim();
-}
-
-/**
- * Recursively sanitise a JSON-LD node: any string value carrying HTML markup is
- * replaced by its text. Some sites embed large HTML fragments inside JSON-LD
- * string fields (for example a job posting's description), which are pure noise
- * for a text consumer. Strings without markup are returned unchanged, so
- * ordinary values, URLs, and text that merely contains a bare "<" are left
- * alone.
- * @param {*} node
- * @returns {*}
- */
-function sanitizeStructured(node) {
-    if (typeof node === "string") {
-        return HTML_TAG.test(node) ? stripHtml(node) : node;
-    }
-    if (Array.isArray(node)) {
-        return node.map(sanitizeStructured);
-    }
-    if (node && typeof node === "object") {
-        const out = {};
-        Object.keys(node).forEach((key) => {
-            out[key] = sanitizeStructured(node[key]);
-        });
-        return out;
-    }
-    return node;
 }
 
 // ---------------------------------------------------------------------------
@@ -537,27 +317,41 @@ function pageExtractor(lowSignalMinChars) {
         const bodyLength = document.body
             ? (document.body.innerText || "").length
             : 0;
-        let best = null;
-        let bestScore = 0;
 
+        // Cheap first pass: shortlist blocks by textContent length, which does
+        // not force layout. innerText (which does force layout) then runs only
+        // on a small, bounded set of candidates instead of every block on the
+        // page, which keeps deeply nested legacy pages from freezing the popup.
+        const candidates = [];
         document
             .querySelectorAll("body div, body section, body td, body table")
             .forEach((el) => {
-                const text = el.innerText || "";
-                if (text.length < 200) {
-                    return;
-                }
-                // Penalise link-heavy blocks so navigation menus lose to real content.
-                let linkLength = 0;
-                el.querySelectorAll("a").forEach((a) => {
-                    linkLength += (a.innerText || "").length;
-                });
-                const score = text.length - linkLength * 2;
-                if (score > bestScore) {
-                    bestScore = score;
-                    best = el;
+                const length = (el.textContent || "").length;
+                if (length >= 200) {
+                    candidates.push({ el: el, length: length });
                 }
             });
+        candidates.sort((a, b) => b.length - a.length);
+
+        let best = null;
+        let bestScore = 0;
+
+        candidates.slice(0, 50).forEach(({ el }) => {
+            const text = el.innerText || "";
+            if (text.length < 200) {
+                return;
+            }
+            // Penalise link-heavy blocks so navigation menus lose to real content.
+            let linkLength = 0;
+            el.querySelectorAll("a").forEach((a) => {
+                linkLength += (a.innerText || "").length;
+            });
+            const score = text.length - linkLength * 2;
+            if (score > bestScore) {
+                bestScore = score;
+                best = el;
+            }
+        });
 
         if (best && bestScore > bodyLength * 0.4) {
             root = best;
@@ -691,8 +485,8 @@ async function captureTab(tab) {
         const record = {
             id: tab.id,
             title: tab.title || result.documentTitle || "",
-            url: outputUrl(tab.url || ""),
-            canonical_url: outputUrl(result.canonical),
+            url: outputUrl(tab.url || "", settings.stripUrlParams),
+            canonical_url: outputUrl(result.canonical, settings.stripUrlParams),
             site_name: result.siteName,
             description: result.description,
             language: result.lang,
@@ -728,7 +522,7 @@ async function captureTab(tab) {
         return {
             id: tab.id,
             title: tab.title || "",
-            url: outputUrl(tab.url || ""),
+            url: outputUrl(tab.url || "", settings.stripUrlParams),
             captured_at: capturedAt,
             ok: false,
             error: err && err.message ? err.message : String(err)
@@ -766,16 +560,6 @@ async function buildExport() {
         count: results.length,
         failed: failed
     };
-}
-
-/**
- * Build a timestamped download filename with no characters that download
- * targets dislike.
- * @returns {string}
- */
-function timestampName() {
-    const iso = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
-    return "tabs2json-" + iso + ".json";
 }
 
 /**
