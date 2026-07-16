@@ -3,6 +3,12 @@
   "name": "Tabs2JSON",
   "version": "2026.7.0",
   "description": "Export full page text and metadata from selected Chrome tabs to JSON.",
+  "icons": {
+    "16": "src/icons/icon16.png",
+    "32": "src/icons/icon32.png",
+    "48": "src/icons/icon48.png",
+    "128": "src/icons/icon128.png"
+  },
   "permissions": [
     "tabs",
     "scripting",
@@ -14,10 +20,12 @@
   ],
   "action": {
     "default_title": "Tabs2JSON",
-    "default_popup": "src/popup/popup.html"
-  },
-  "options_ui": {
-    "page": "src/options/options.html",
-    "open_in_tab": true
+    "default_popup": "src/popup/popup.html",
+    "default_icon": {
+      "16": "src/icons/icon16.png",
+      "32": "src/icons/icon32.png",
+      "48": "src/icons/icon48.png",
+      "128": "src/icons/icon128.png"
+    }
   }
 }
