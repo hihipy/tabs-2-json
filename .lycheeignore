@@ -1,0 +1,6 @@
+# Patterns of URLs lychee should skip during link checks.
+# One regex per line. Lines starting with # are ignored.
+
+# Microsoft product pages sit behind an Akamai CDN that returns 500 to
+# CI bots, the same behavior seen on the Excel pages in other repos.
+^https://www\.microsoft\.com/edge
