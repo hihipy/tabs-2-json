@@ -1,0 +1,8 @@
+# macOS
+.DS_Store
+
+# lychee link-checker cache (created on CI runners)
+.lycheecache
+
+# Node, only present if you run the tests locally
+node_modules/
