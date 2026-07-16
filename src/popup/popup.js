@@ -20,11 +20,14 @@ const THEME_KEY = "theme";
 /** Character cap applied to the text of video-only pages when trimming is on. */
 const VIDEO_SNIPPET_CHARS = 300;
 
-/** Minimum length of real text below which a capture is treated as low signal. */
-const LOW_SIGNAL_MIN_CHARS = 250;
-
-/** Link-text ratio above which a capture is treated as low signal. */
-const LOW_SIGNAL_LINK_DENSITY = 0.6;
+/**
+ * Minimum length of extracted text below which a capture is treated as low
+ * signal. This is a conservative near-empty check: it flags pages that yielded
+ * almost no text (for example a client-rendered shell that never populated),
+ * and deliberately does not try to judge full-but-noisy pages, which cannot be
+ * detected reliably without site-specific logic.
+ */
+const LOW_SIGNAL_MIN_CHARS = 200;
 
 /** Schema.org types that indicate a page carries real article-style prose. */
 const ARTICLE_TYPES = [
@@ -429,10 +432,9 @@ function selectedTabIds() {
  * page-type-agnostic way, then returns a plain data object. This function must
  * stay self-contained: it cannot reference anything from the popup scope.
  * @param {number} lowSignalMinChars Below this text length, mark low signal.
- * @param {number} lowSignalLinkDensity Above this link ratio, mark low signal.
  * @returns {Object}
  */
-function pageExtractor(lowSignalMinChars, lowSignalLinkDensity) {
+function pageExtractor(lowSignalMinChars) {
     const attr = (selector, name) => {
         const el = document.querySelector(selector);
         return el ? el.getAttribute(name) : null;
@@ -527,19 +529,9 @@ function pageExtractor(lowSignalMinChars, lowSignalLinkDensity) {
 
     const rootText = root ? root.innerText : "";
 
-    // Page-type-agnostic extraction-quality signal. Content that is very short or
-    // mostly link text (navigation shells, search results, app scaffolding) is
-    // flagged so consumers can distrust it rather than treat it as clean prose.
-    let linkTextLength = 0;
-    if (root) {
-        root.querySelectorAll("a").forEach((a) => {
-            linkTextLength += (a.innerText || "").length;
-        });
-    }
-    const linkDensity = rootText.length ? linkTextLength / rootText.length : 0;
-    const lowSignal =
-        rootText.trim().length < lowSignalMinChars ||
-        linkDensity > lowSignalLinkDensity;
+    // Near-empty check: a page that yielded almost no text is low signal. This is
+    // a high-precision flag, not an attempt to judge full-but-noisy pages.
+    const lowSignal = rootText.trim().length < lowSignalMinChars;
 
     return {
         documentTitle: document.title,
@@ -570,7 +562,7 @@ async function captureTab(tab) {
         const [injection] = await chrome.scripting.executeScript({
             target: { tabId: tab.id },
             func: pageExtractor,
-            args: [LOW_SIGNAL_MIN_CHARS, LOW_SIGNAL_LINK_DENSITY]
+            args: [LOW_SIGNAL_MIN_CHARS]
         });
 
         const result = injection.result || {};
@@ -623,7 +615,7 @@ async function captureTab(tab) {
             }
         }
 
-        // Present only when true; absence means the capture looked normal.
+        // Present only when true; absence means the extraction looked normal.
         if (result.lowSignal) {
             record.low_signal = true;
         }

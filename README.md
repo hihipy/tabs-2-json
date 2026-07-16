@@ -5,10 +5,10 @@
 
 **Built with**
 
-[![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=flat&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
-[![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=flat&logo=html5&logoColor=white)](https://developer.mozilla.org/en-US/docs/Web/HTML)
-[![CSS3](https://img.shields.io/badge/CSS3-1572B6?style=flat&logo=css&logoColor=white)](https://developer.mozilla.org/en-US/docs/Web/CSS)
 [![Chrome](https://img.shields.io/badge/Chrome-4285F4?style=flat&logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions)
+[![CSS3](https://img.shields.io/badge/CSS3-1572B6?style=flat&logo=css&logoColor=white)](https://developer.mozilla.org/en-US/docs/Web/CSS)
+[![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=flat&logo=html5&logoColor=white)](https://developer.mozilla.org/en-US/docs/Web/HTML)
+[![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=flat&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![JSON](https://img.shields.io/badge/JSON-000000?style=flat&logo=json&logoColor=white)](https://www.json.org/)
 
 **Turn your open tabs into clean JSON.**
@@ -73,7 +73,7 @@ On success, present when the page provides them and the matching setting is on:
 Boolean flags are present only when true. Their absence means false:
 
 - `text_truncated`: the text was shortened by the video trim or the character cap.
-- `low_signal`: the extracted text is likely low quality (very short, or mostly navigation links). Common on [single-page apps](https://developer.mozilla.org/en-US/docs/Glossary/SPA) and search results. Treat the text with suspicion and prefer `structured_data` where present.
+- `low_signal`: the extracted text came back nearly empty (under 200 characters), which usually means a client-rendered page never populated. It is a high-precision failure flag, not a noise detector: a page with substantial but low-quality text (for example a search results page) will not carry it, so absence does not guarantee the text is clean.
 
 On failure, the record has `id`, `title`, `url`, `captured_at`, `ok` set to `false`, and:
 
