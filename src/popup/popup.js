@@ -300,6 +300,55 @@ function prune(obj) {
     return out;
 }
 
+/** Matches an HTML tag, used to detect markup embedded in JSON-LD strings. */
+const HTML_TAG = /<[a-z!/][^>]*>/i;
+
+/**
+ * Reduce an HTML string to its text content, decoding entities and collapsing
+ * whitespace. Parsing through DOMParser as text/html does not execute scripts
+ * and does not touch the live page. Call only on strings known to contain
+ * markup.
+ * @param {string} html
+ * @returns {string}
+ */
+function stripHtml(html) {
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    // Drop elements whose text is not content: style and script carry CSS and
+    // JS, which survive a plain textContent read and would otherwise replace the
+    // markup as noise.
+    doc.querySelectorAll("script, style, noscript, template").forEach((el) => {
+        el.remove();
+    });
+    return (doc.body.textContent || "").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Recursively sanitise a JSON-LD node: any string value carrying HTML markup is
+ * replaced by its text. Some sites embed large HTML fragments inside JSON-LD
+ * string fields (for example a job posting's description), which are pure noise
+ * for a text consumer. Strings without markup are returned unchanged, so
+ * ordinary values, URLs, and text that merely contains a bare "<" are left
+ * alone.
+ * @param {*} node
+ * @returns {*}
+ */
+function sanitizeStructured(node) {
+    if (typeof node === "string") {
+        return HTML_TAG.test(node) ? stripHtml(node) : node;
+    }
+    if (Array.isArray(node)) {
+        return node.map(sanitizeStructured);
+    }
+    if (node && typeof node === "object") {
+        const out = {};
+        Object.keys(node).forEach((key) => {
+            out[key] = sanitizeStructured(node[key]);
+        });
+        return out;
+    }
+    return node;
+}
+
 // ---------------------------------------------------------------------------
 // Tab list rendering
 // ---------------------------------------------------------------------------
@@ -527,7 +576,56 @@ function pageExtractor(lowSignalMinChars) {
         }
     });
 
-    const rootText = root ? root.innerText : "";
+    let rootText = root ? root.innerText : "";
+
+    // Peel leading navigation chrome. innerText of the content root can begin
+    // with an in-page menu bar (namespace tabs, section nav) that lives inside
+    // the root. A nav or aside block is removed only when its text is an exact
+    // prefix of the body text, so this never touches prose mid-page and never
+    // drops an article's own heading. Header widgets built from plain divs are
+    // not landmarks and are left in place.
+    const CHROME_SELECTOR = 'nav, aside, [role="navigation"], [role="complementary"]';
+    const normalize = (s) => (s || "").replace(/\s+/g, " ").trim();
+
+    // Remove the first `normCount` normalised characters from the original
+    // text, where normalisation trims leading whitespace and collapses each
+    // internal run to one space. This maps a normalised prefix length back onto
+    // the original so the surviving text keeps its own spacing.
+    const sliceAfterNormalized = (original, normCount) => {
+        let seen = 0;
+        let inGap = true; // leading whitespace contributes nothing
+        let i = 0;
+        for (; i < original.length && seen < normCount; i++) {
+            if (/\s/.test(original[i])) {
+                if (!inGap) {
+                    seen += 1; // one collapsed space per whitespace run
+                    inGap = true;
+                }
+            } else {
+                seen += 1;
+                inGap = false;
+            }
+        }
+        return original.slice(i);
+    };
+
+    const chromeTexts = Array.from((root || document).querySelectorAll(CHROME_SELECTOR))
+        .map((el) => normalize(el.innerText))
+        .filter((t) => t.length >= 8)
+        .sort((a, b) => b.length - a.length);
+
+    let peeled = true;
+    while (peeled) {
+        peeled = false;
+        const normBody = normalize(rootText);
+        for (const chromeText of chromeTexts) {
+            if (chromeText && normBody.startsWith(chromeText)) {
+                rootText = sliceAfterNormalized(rootText, chromeText.length).replace(/^\s+/, "");
+                peeled = true;
+                break;
+            }
+        }
+    }
 
     // Near-empty check: a page that yielded almost no text is low signal. This is
     // a high-precision flag, not an attempt to judge full-but-noisy pages.
@@ -569,6 +667,11 @@ async function captureTab(tab) {
         const structured = result.structured || [];
         const videoOnly = isVideoOnly(structured);
 
+        // A video-only page carries little useful body text; the VideoObject in
+        // the structured data is the real content. Flag it so a consumer can
+        // skip the body and lean on the structured data instead.
+        let lowSignal = Boolean(result.lowSignal) || videoOnly;
+
         let text = cleanText(result.rawText);
         let textTruncated = false;
 
@@ -605,7 +708,7 @@ async function captureTab(tab) {
             record.headings = result.headings || [];
         }
         if (settings.includeStructuredData) {
-            record.structured_data = structured;
+            record.structured_data = structured.map(sanitizeStructured);
         }
         if (settings.includeText) {
             record.text = text;
@@ -616,7 +719,7 @@ async function captureTab(tab) {
         }
 
         // Present only when true; absence means the extraction looked normal.
-        if (result.lowSignal) {
+        if (lowSignal) {
             record.low_signal = true;
         }
 
