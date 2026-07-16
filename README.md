@@ -65,7 +65,7 @@ On success, present when the page provides them and the matching setting is on:
 
 - `canonical_url`, `site_name`, `description`, `language`, `author`, `published_at`: page metadata, each omitted when absent. Drawn from standard [meta tags](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/meta), [Open Graph](https://ogp.me/) properties, and the [canonical link](https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls).
 - `headings`: array of `{ level, text }`, when Include Headings Outline is on.
-- `structured_data`: array of [JSON-LD](https://json-ld.org/) objects the page embedded, passed through as-is, when Include Structured Data is on.
+- `structured_data`: array of [JSON-LD](https://json-ld.org/) objects the page embedded, when Include Structured Data is on. Any string value that contains HTML markup is reduced to its text, so embedded markup and inline CSS do not leak into the output; values without markup are unchanged.
 - `text`: the cleaned visible text, when Include Page Text is on.
 - `word_count`: word count of `text`.
 - `content_type`: set to `video` when the page is video-only, otherwise absent.
@@ -73,7 +73,7 @@ On success, present when the page provides them and the matching setting is on:
 Boolean flags are present only when true. Their absence means false:
 
 - `text_truncated`: the text was shortened by the video trim or the character cap.
-- `low_signal`: the extracted text came back nearly empty (under 200 characters), which usually means a client-rendered page never populated. It is a high-precision failure flag, not a noise detector: a page with substantial but low-quality text (for example a search results page) will not carry it, so absence does not guarantee the text is clean.
+- `low_signal`: the extracted `text` is unreliable, set in two cases. Either the text came back nearly empty (under 200 characters), which usually means a client-rendered page never populated; or the page is video-only, whose body carries little useful text and whose real content sits in `structured_data`. It is a high-precision flag, not a noise detector: a page with substantial but low-quality text (for example a search results page) will not carry it, so absence does not guarantee the text is clean.
 
 On failure, the record has `id`, `title`, `url`, `captured_at`, `ok` set to `false`, and:
 
@@ -92,8 +92,8 @@ On failure, the record has `id`, `title`, `url`, `captured_at`, `ok` set to `fal
 The extension reads each page in a way that does not depend on the site being modern or well-built.
 
 1. **Content root.** It looks for a semantic [`<main>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/main), then [`<article>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/article), then an element with [`role="main"`](https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Roles/main_role). If none exist, it scores content blocks by text length and link density to find the real content, and falls back to the [`<body>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/body) as a last resort. This keeps it working on older table-layout pages as well as current ones.
-2. **Text.** It reads [`innerText`](https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/innerText) from the chosen root, so visible block structure survives, then normalizes whitespace.
-3. **Structured data.** It parses every [JSON-LD](https://json-ld.org/) block on the page and passes it through untouched, whatever the [Schema.org](https://schema.org/) type.
+2. **Text.** It reads [`innerText`](https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/innerText) from the chosen root, so visible block structure survives. It then peels a leading navigation or aside block when that block's text is an exact prefix of the body, which removes in-page menu bars without touching prose, and normalizes whitespace.
+3. **Structured data.** It parses every [JSON-LD](https://json-ld.org/) block on the page, whatever the [Schema.org](https://schema.org/) type, and reduces any string value that carries HTML markup to its text. Some sites embed large HTML fragments inside JSON-LD strings; this keeps that markup out of the output while leaving ordinary values untouched.
 4. **Metadata.** It reads standard [meta tags](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/meta), the [canonical URL](https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls), and the [document language](https://developer.mozilla.org/en-US/docs/Web/HTML/Global_attributes/lang).
 
 The read runs through the [`chrome.scripting`](https://developer.chrome.com/docs/extensions/reference/api/scripting) API only on the tabs you select, and only when you trigger an export.
