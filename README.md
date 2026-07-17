@@ -1,6 +1,6 @@
-# tabs-2-json
+# Tabs2JSON
 
-[![Link Check](https://github.com/hihipy/tabs-2-json/actions/workflows/links.yml/badge.svg)](https://github.com/hihipy/tabs-2-json/actions/workflows/links.yml)
+[![Link Check](https://github.com/hihipy/Tabs2JSON/actions/workflows/links.yml/badge.svg)](https://github.com/hihipy/Tabs2JSON/actions/workflows/links.yml)
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
 
 **Built with**
@@ -13,13 +13,13 @@
 
 **Turn your open tabs into clean JSON.**
 
-`tabs-2-json` is a browser extension that reads the text and metadata of the tabs you select and exports it as structured [JSON](https://www.json.org/), built for feeding page content to a large language model. It works across page types by relying on how [HTML](https://developer.mozilla.org/en-US/docs/Web/HTML) organizes content rather than assuming any particular site structure.
+`Tabs2JSON` is a browser extension that reads the text and metadata of the tabs you select and exports it as structured [JSON](https://www.json.org/), built for feeding page content to a large language model. It works across page types by relying on how [HTML](https://developer.mozilla.org/en-US/docs/Web/HTML) organizes content rather than assuming any particular site structure.
 
 ---
 
 ## Why this exists
 
-Copying a job description, an article, or a set of research pages into an LLM one tab at a time is slow, and pasted browser text arrives cluttered with navigation and footer boilerplate. `tabs-2-json` grabs the readable content from every tab you pick in one click, strips most of the chrome, preserves any [Schema.org](https://schema.org/) structured data the page already ships, and hands you a single JSON document an LLM can consume end to end.
+Copying a job description, an article, or a set of research pages into an LLM one tab at a time is slow, and pasted browser text arrives cluttered with navigation and footer boilerplate. `Tabs2JSON` grabs the readable content from every tab you pick in one click, strips most of the chrome, preserves any [Schema.org](https://schema.org/) structured data the page already ships, and hands you a single JSON document an LLM can consume end to end.
 
 ---
 
