@@ -1,6 +1,6 @@
 # Privacy Policy
 
-`tabs-2-json` is a browser extension that exports the text and metadata of tabs you select into a [JSON](https://www.json.org/) file. This policy explains what the extension does and does not do with your data.
+`Tabs2JSON` is a browser extension that exports the text and metadata of tabs you select into a [JSON](https://www.json.org/) file. This policy explains what the extension does and does not do with your data.
 
 ---
 
@@ -56,4 +56,4 @@ The extension cannot read browser internal pages (for example `chrome://` or `br
 
 ## Contact
 
-Questions about this policy can be raised as an issue on the [project repository](https://github.com/hihipy/tabs-2-json/issues).
+Questions about this policy can be raised as an issue on the [project repository](https://github.com/hihipy/Tabs2JSON/issues).
