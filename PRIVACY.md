@@ -56,4 +56,4 @@ The extension cannot read browser internal pages (for example `chrome://` or `br
 
 ## Contact
 
-Questions about this policy can be raised as an issue on the [project repository](https://github.com/hihipy/Tabs2JSON/issues).
+Questions about this policy can be raised as an issue on the [project repository](https://github.com/hihipy/tabs-2-json/issues).
