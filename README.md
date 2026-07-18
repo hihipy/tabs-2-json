@@ -1,6 +1,6 @@
 # Tabs2JSON
 
-[![Link Check](https://github.com/hihipy/tabs-2-json/actions/workflows/links.yml/badge.svg)](https://github.com/hihipy/Tabs2JSON/actions/workflows/links.yml)
+[![Link Check](https://github.com/hihipy/tabs-2-json/actions/workflows/links.yml/badge.svg)](https://github.com/hihipy/tabs-2-json/actions/workflows/links.yml)
 [![License: CC BY-NC-SA 4.0](https://img.shields.io/badge/License-CC%20BY--NC--SA%204.0-lightgrey.svg)](https://creativecommons.org/licenses/by-nc-sa/4.0/)
 
 **Built with**
@@ -23,16 +23,16 @@ Copying a job description, an article, or a set of research pages into an LLM on
 
 ---
 
-## Install (unpacked)
+## Install
 
-The extension is not yet on the [Chrome Web Store](https://chromewebstore.google.com/). To run it now:
+Install from the [Chrome Web Store](https://chromewebstore.google.com/detail/bljpjkglinfdphfopjdfoookglelobhj), which works in any [Chromium](https://www.chromium.org/Home/) browser that supports [Manifest V3](https://developer.chrome.com/docs/extensions/develop/migrate/what-is-mv3): [Chrome](https://www.google.com/chrome/), [Brave](https://brave.com/), [Edge](https://www.microsoft.com/edge), [Opera](https://www.opera.com/), and others.
+
+To run the source directly instead:
 
 1. Open [`chrome://extensions`](https://developer.chrome.com/docs/extensions/get-started) (or `brave://extensions` in [Brave](https://brave.com/)).
 2. Turn on Developer mode.
 3. Click Load unpacked and select this folder.
 4. Pin the extension and click its icon to open the popup.
-
-Works in any [Chromium](https://www.chromium.org/Home/) browser that supports [Manifest V3](https://developer.chrome.com/docs/extensions/develop/migrate/what-is-mv3): [Chrome](https://www.google.com/chrome/), [Brave](https://brave.com/), [Edge](https://www.microsoft.com/edge), [Opera](https://www.opera.com/), and others.
 
 ---
 
