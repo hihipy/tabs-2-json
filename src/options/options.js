@@ -131,6 +131,10 @@ el.blocked.addEventListener("change", save);
  * @returns {Promise<void>}
  */
 async function init() {
+  const versionEl = document.getElementById("version");
+  if (versionEl) {
+    versionEl.textContent = "Version " + chrome.runtime.getManifest().version;
+  }
   const stored = await chrome.storage.local.get(THEME_KEY);
   applyTheme(stored[THEME_KEY] || "auto");
   await loadForm();
