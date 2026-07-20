@@ -181,6 +181,7 @@ export function pageExtractor(lowSignalMinChars) {
 
     return {
         documentTitle: document.title,
+        frameUrl: document.location.href,
         lang: document.documentElement.getAttribute("lang") || null,
         canonical: attr('link[rel="canonical"]', "href"),
         siteName: meta(["og:site_name"]),

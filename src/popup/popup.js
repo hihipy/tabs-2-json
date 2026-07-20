@@ -263,22 +263,47 @@ async function captureTab(tab) {
     const capturedAt = new Date().toISOString();
 
     try {
-        const [injection] = await chrome.scripting.executeScript({
-            target: { tabId: tab.id },
+        // Inject into every frame, not just the top document. Some sites, such as
+        // applicant tracking systems and embedded document viewers, render the real
+        // content inside a cross-origin iframe, leaving the top frame as a shell.
+        // Host permission for the frame's origin is required, which <all_urls>
+        // provides. A frame the script cannot run in is simply absent from results.
+        const injections = await chrome.scripting.executeScript({
+            target: { tabId: tab.id, allFrames: true },
             func: pageExtractor,
             args: [LOW_SIGNAL_MIN_CHARS]
         });
 
-        const result = injection.result || {};
-        const structured = result.structured || [];
+        const frames = injections.filter((f) => f && f.result);
+        if (frames.length === 0) {
+            throw new Error("No readable frame in this tab.");
+        }
+
+        // Tab identity (title, URL, canonical) comes from the top frame, which owns
+        // the address-bar URL.
+        const topFrame = frames.find((f) => f.frameId === 0) || frames[0];
+        // Body content comes from whichever frame yielded the most text, so an
+        // iframe-embedded article or posting wins over the surrounding shell.
+        // Ad and chat-widget frames carry little text and lose this comparison.
+        const bodyFrame = frames.reduce(
+            (best, f) =>
+                (f.result.rawText || "").length > (best.result.rawText || "").length ? f : best,
+            frames[0]
+        );
+
+        const meta = topFrame.result;
+        const body = bodyFrame.result;
+        const fromSubFrame = bodyFrame !== topFrame;
+
+        const structured = body.structured || [];
         const videoOnly = isVideoOnly(structured);
 
-        // A video-only page carries little useful body text; the VideoObject in
-        // the structured data is the real content. Flag it so a consumer can
-        // skip the body and lean on the structured data instead.
-        let lowSignal = Boolean(result.lowSignal) || videoOnly;
+        // A video-only page carries little useful body text; the VideoObject in the
+        // structured data is the real content. Flag it so a consumer can skip the
+        // body and lean on the structured data instead.
+        let lowSignal = Boolean(body.lowSignal) || videoOnly;
 
-        let text = cleanText(result.rawText);
+        let text = cleanText(body.rawText);
         let textTruncated = false;
 
         // Video-only pages carry little useful body text, so trim to a snippet and
@@ -294,24 +319,32 @@ async function captureTab(tab) {
             textTruncated = true;
         }
 
+        // Optional metadata prefers the top frame and falls back to the content
+        // frame, which for an embedded page often carries the real values.
         const record = {
             id: tab.id,
-            title: tab.title || result.documentTitle || "",
+            title: tab.title || meta.documentTitle || body.documentTitle || "",
             url: outputUrl(tab.url || "", settings.stripUrlParams),
-            canonical_url: outputUrl(result.canonical, settings.stripUrlParams),
-            site_name: result.siteName,
-            description: result.description,
-            language: result.lang,
-            author: result.author,
-            published_at: result.published,
-            content_source: result.contentSource,
+            canonical_url: outputUrl(meta.canonical || body.canonical, settings.stripUrlParams),
+            site_name: meta.siteName || body.siteName,
+            description: meta.description || body.description,
+            language: meta.lang || body.lang,
+            author: meta.author || body.author,
+            published_at: meta.published || body.published,
+            content_source: body.contentSource,
             content_type: videoOnly ? "video" : null,
             captured_at: capturedAt,
             ok: true
         };
 
+        // When the body came from a sub-frame, record which frame, so a consumer
+        // can see the text is not from the tab's own URL.
+        if (fromSubFrame && body.frameUrl) {
+            record.content_frame_url = outputUrl(body.frameUrl, settings.stripUrlParams);
+        }
+
         if (settings.includeHeadings) {
-            record.headings = result.headings || [];
+            record.headings = body.headings || [];
         }
         if (settings.includeStructuredData) {
             record.structured_data = structured.map(sanitizeStructured);
