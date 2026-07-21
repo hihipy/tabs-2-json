@@ -205,10 +205,12 @@ test("marks a script-only shell as low signal", () => {
     assert.equal(r.lowSignal, true);
 });
 
-test("does not count text hidden with display:none, hidden, or aria-hidden", () => {
-    // A real browser's innerText drops text hidden by CSS or the hidden and
-    // aria-hidden attributes; textContent would keep it. Hidden boilerplate inside
-    // the content root must not inflate the text or defeat the low-signal floor.
+test("does not count text hidden with display:none, visibility:hidden, or hidden", () => {
+    // A real browser's innerText drops text hidden by display:none,
+    // visibility:hidden, or the hidden attribute; textContent would keep it, and
+    // such boilerplate must not inflate rawText or defeat the low-signal floor.
+    // aria-hidden is different: it changes the accessibility tree, not rendering,
+    // so innerText still returns that text and this harness keeps it.
     const r = extract(`<!DOCTYPE html><html><head><title>Hidden</title>
         <style>.gone { display: none; }</style>
       </head><body>
@@ -216,16 +218,19 @@ test("does not count text hidden with display:none, hidden, or aria-hidden", () 
           <p>${PROSE}</p>
           <p style="display:none">HIDDEN_INLINE boilerplate that should never appear.</p>
           <p class="gone">HIDDEN_CLASS boilerplate that should never appear.</p>
+          <p style="visibility:hidden">HIDDEN_VIS boilerplate that should never appear.</p>
           <div hidden>HIDDEN_ATTR boilerplate that should never appear.</div>
-          <div aria-hidden="true">HIDDEN_ARIA boilerplate that should never appear.</div>
+          <div aria-hidden="true">ARIA_KEPT text that a real browser still renders.</div>
         </main>
       </body></html>`);
     assert.equal(r.contentSource, "main");
     assert.ok(r.rawText.includes("real article body"));
     assert.ok(!r.rawText.includes("HIDDEN_INLINE"));
     assert.ok(!r.rawText.includes("HIDDEN_CLASS"));
+    assert.ok(!r.rawText.includes("HIDDEN_VIS"));
     assert.ok(!r.rawText.includes("HIDDEN_ATTR"));
-    assert.ok(!r.rawText.includes("HIDDEN_ARIA"));
+    // aria-hidden does not affect innerText, so its text is retained.
+    assert.ok(r.rawText.includes("ARIA_KEPT"));
 });
 
 test("marks a page as low signal when its only text is hidden", () => {

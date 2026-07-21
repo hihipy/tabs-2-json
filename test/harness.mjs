@@ -8,16 +8,18 @@
  * The naive substitution innerText -> textContent is wrong in two ways a real
  * browser is not. First, textContent returns the text of <script> and <style>
  * elements, which innerText never does because they are not rendered. Second,
- * textContent returns text hidden with display:none, visibility:hidden, the
- * hidden attribute, or aria-hidden, which innerText also drops. Both would
- * inflate rawText and could hide a low-signal shell or defeat the leading-chrome
- * peel. This harness walks the element and keeps only rendered, visible text,
- * skipping the non-rendered tags and any node jsdom reports as hidden. jsdom has
- * no layout engine, so it resolves display and visibility from inline styles and
- * simple stylesheet rules but not from anything that needs geometry (off-screen
- * positioning, zero-size clipping); the suites therefore assert structural
- * behaviour, not exact whitespace, and a real-browser export remains the backstop
- * for visibility bugs that depend on layout.
+ * textContent returns text hidden with display:none, visibility:hidden, or the
+ * hidden attribute, which innerText also drops. Both would inflate rawText and
+ * could hide a low-signal shell or defeat the leading-chrome peel. This harness
+ * walks the element and keeps only rendered, visible text, skipping the
+ * non-rendered tags and any node jsdom reports as hidden. It does not skip
+ * aria-hidden, which changes the accessibility tree but not rendering, so a real
+ * browser's innerText still returns that text. jsdom has no layout engine, so it
+ * resolves display and visibility from inline styles and simple stylesheet rules
+ * but not from anything that needs geometry (off-screen positioning, zero-size
+ * clipping); the suites therefore assert structural behaviour, not exact
+ * whitespace, and a real-browser export remains the backstop for visibility bugs
+ * that depend on layout.
  */
 
 import { JSDOM } from "jsdom";
@@ -29,9 +31,17 @@ const NON_RENDERED = new Set(["script", "style", "noscript", "template"]);
 /** Default low-signal floor, matching the popup's LOW_SIGNAL_MIN_CHARS. */
 export const LOW_SIGNAL_MIN_CHARS = 200;
 
-/** True when jsdom reports the element as not rendered or not visible. */
+/**
+ * True when jsdom reports the element as not rendered or not visible, using only
+ * the mechanisms that actually suppress innerText: the hidden attribute,
+ * display:none, and visibility:hidden. aria-hidden is deliberately excluded, it
+ * removes a node from the accessibility tree but does not affect rendering, so a
+ * real browser's innerText still returns its text. Treating aria-hidden content
+ * as noise, if that is wanted, belongs in the extractor and should be tested
+ * against a faithful innerText, not folded into this approximation.
+ */
 function isHidden(el, win) {
-    if (el.hidden || el.getAttribute("aria-hidden") === "true") {
+    if (el.hidden) {
         return true;
     }
     const cs = win.getComputedStyle(el);
