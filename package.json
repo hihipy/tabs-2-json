@@ -6,11 +6,11 @@
   "type": "module",
   "license": "CC-BY-NC-SA-4.0",
   "scripts": {
-    "test": "node test/unit.mjs && node test/extractor.test.mjs && node test/pipeline.test.mjs && node test/holistic.test.mjs",
-    "test:unit": "node test/unit.mjs",
-    "test:extractor": "node test/extractor.test.mjs",
-    "test:pipeline": "node test/pipeline.test.mjs",
-    "test:holistic": "node test/holistic.test.mjs"
+    "test": "node --test test/unit.mjs test/extractor.test.mjs test/pipeline.test.mjs test/holistic.test.mjs",
+    "test:unit": "node --test test/unit.mjs",
+    "test:extractor": "node --test test/extractor.test.mjs",
+    "test:pipeline": "node --test test/pipeline.test.mjs",
+    "test:holistic": "node --test test/holistic.test.mjs"
   },
   "devDependencies": {
     "jsdom": "^29.1.1"

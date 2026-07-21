@@ -15,6 +15,7 @@
  */
 
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import {
     DEFAULT_SETTINGS,
     isScriptable,
@@ -36,29 +37,13 @@ import {
     parseDomains
 } from "../src/lib/extract.js";
 
-let passed = 0;
-let failed = 0;
-let skipped = 0;
-
-function test(name, fn) {
-    try {
-        fn();
-        passed += 1;
-        console.log("  ok    " + name);
-    } catch (err) {
-        failed += 1;
-        console.log("  FAIL  " + name);
-        console.log("        " + (err && err.message ? err.message.split("\n")[0] : err));
-    }
-}
-
+// Skipped checks use node:test's skip option so they report as skipped, not passed.
 function skip(name, reason) {
-    skipped += 1;
-    console.log("  skip  " + name + "  (" + reason + ")");
+    test(name, { skip: reason }, () => {});
 }
+
 
 // ---------------------------------------------------------------------------
-console.log("DEFAULT_SETTINGS");
 test("has the expected keys and safe defaults", () => {
     assert.equal(DEFAULT_SETTINGS.stripUrlParams, false);
     assert.equal(DEFAULT_SETTINGS.maxTextChars, 0);
@@ -66,7 +51,6 @@ test("has the expected keys and safe defaults", () => {
 });
 
 // ---------------------------------------------------------------------------
-console.log("isScriptable");
 test("accepts http and https", () => {
     assert.equal(isScriptable("https://example.com"), true);
     assert.equal(isScriptable("http://example.com"), true);
@@ -79,7 +63,6 @@ test("rejects file, chrome, and empty urls", () => {
 });
 
 // ---------------------------------------------------------------------------
-console.log("hostOf");
 test("lowercases the hostname and ignores path and query", () => {
     assert.equal(hostOf("https://Example.COM/a?b=1"), "example.com");
 });
@@ -88,7 +71,6 @@ test("returns empty string for an unparseable url", () => {
 });
 
 // ---------------------------------------------------------------------------
-console.log("isBlocked");
 test("matches an exact host and a subdomain", () => {
     assert.equal(isBlocked("https://mybank.com/login", ["mybank.com"]), true);
     assert.equal(isBlocked("https://secure.mybank.com/x", ["mybank.com"]), true);
@@ -103,7 +85,6 @@ test("tolerates an empty or missing block list", () => {
 });
 
 // ---------------------------------------------------------------------------
-console.log("outputUrl");
 test("strips query and fragment when enabled", () => {
     assert.equal(
         outputUrl("https://www.youtube.com/watch?v=abc#t=10", true),
@@ -121,7 +102,6 @@ test("returns the input unchanged when it is not a url", () => {
 });
 
 // ---------------------------------------------------------------------------
-console.log("isJunkFrame");
 test("flags reCAPTCHA by host and by google.com path", () => {
     assert.equal(
         isJunkFrame("https://www.google.com/recaptcha/enterprise/anchor?k=abc"),
@@ -150,7 +130,6 @@ test("returns false for an unparseable or empty url", () => {
 });
 
 // ---------------------------------------------------------------------------
-console.log("wordCount");
 test("counts whitespace-delimited words and ignores edges", () => {
     assert.equal(wordCount("  the quick  brown fox "), 4);
     assert.equal(wordCount("one"), 1);
@@ -163,7 +142,6 @@ test("scores a whitespace-free blob near nothing", () => {
 });
 
 // ---------------------------------------------------------------------------
-console.log("selectBodyFrame");
 test("prefers the sub-frame with the most words (iCIMS-style embed)", () => {
     const top = { frameId: 0, result: { frameUrl: "https://jobs.example.com/", rawText: "Apply here" } };
     const embed = {
@@ -206,7 +184,6 @@ test("keeps the top frame on a word-count tie", () => {
 });
 
 // ---------------------------------------------------------------------------
-console.log("collectTypes / schemaTypes");
 test("collects @type across arrays and @graph", () => {
     const acc = new Set();
     collectTypes({ "@graph": [{ "@type": "Article" }, { "@type": ["VideoObject", "Thing"] }] }, acc);
@@ -219,7 +196,6 @@ test("schemaTypes flattens a list of blocks", () => {
 });
 
 // ---------------------------------------------------------------------------
-console.log("isVideoOnly");
 test("true for a VideoObject with no article type", () => {
     assert.equal(isVideoOnly([{ "@type": "VideoObject" }]), true);
 });
@@ -232,7 +208,6 @@ test("false when there is no video", () => {
 });
 
 // ---------------------------------------------------------------------------
-console.log("cleanText");
 test("trims each line and drops carriage returns", () => {
     assert.equal(cleanText("  a \r\n  b  "), "a\nb");
 });
@@ -244,7 +219,6 @@ test("returns empty string for null input", () => {
 });
 
 // ---------------------------------------------------------------------------
-console.log("prune");
 test("drops null, undefined, empty string, and empty array", () => {
     assert.deepEqual(prune({ a: null, b: undefined, c: "", d: [], e: "keep" }), { e: "keep" });
 });
@@ -253,13 +227,11 @@ test("keeps boolean false and the number zero", () => {
 });
 
 // ---------------------------------------------------------------------------
-console.log("timestampName");
 test("matches the tabs2json-<iso>.json shape with no colons", () => {
     assert.match(timestampName(), /^tabs2json-\d{4}-\d{2}-\d{2}T\d{2}-\d{2}-\d{2}\.json$/);
 });
 
 // ---------------------------------------------------------------------------
-console.log("clampInt");
 test("clamps below the minimum and rejects non-numbers", () => {
     assert.equal(clampInt("-5", 0), 0);
     assert.equal(clampInt("abc", 0), 0);
@@ -267,7 +239,6 @@ test("clamps below the minimum and rejects non-numbers", () => {
 });
 
 // ---------------------------------------------------------------------------
-console.log("parseDomains");
 test("splits on newlines and commas, lowercases, dedupes", () => {
     assert.deepEqual(parseDomains("A.com\nb.com, A.com"), ["a.com", "b.com"]);
 });
@@ -280,7 +251,6 @@ test("returns an empty array for blank input", () => {
 });
 
 // ---------------------------------------------------------------------------
-console.log("sanitizeStructured (structure, no DOMParser needed)");
 test("leaves plain strings, bare <, and urls untouched", () => {
     assert.equal(sanitizeStructured("Frankfort, KY"), "Frankfort, KY");
     assert.equal(sanitizeStructured("a < b and c > d"), "a < b and c > d");
@@ -300,7 +270,6 @@ test("recurses arrays and objects, preserving @type", () => {
 });
 
 // ---------------------------------------------------------------------------
-console.log("stripHtml (needs DOMParser)");
 if (typeof DOMParser === "undefined") {
     skip("strips tags and keeps prose", "no DOMParser in plain Node");
     skip("drops style and script text", "no DOMParser in plain Node");
@@ -328,5 +297,3 @@ if (typeof DOMParser === "undefined") {
 }
 
 // ---------------------------------------------------------------------------
-console.log("\n" + passed + " passed, " + failed + " failed, " + skipped + " skipped");
-process.exit(failed ? 1 : 0);

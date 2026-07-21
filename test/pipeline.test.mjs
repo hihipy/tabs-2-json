@@ -23,6 +23,7 @@
  */
 
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import { extract } from "./harness.mjs";
 import { selectBodyFrame, wordCount, isJunkFrame } from "../src/lib/extract.js";
 
@@ -93,23 +94,8 @@ function frame(frameId, html, url) {
 }
 
 // ---------------------------------------------------------------------------
-let passed = 0;
-let failed = 0;
-
-function test(name, fn) {
-    try {
-        fn();
-        passed += 1;
-        console.log("  ok    " + name);
-    } catch (err) {
-        failed += 1;
-        console.log("  FAIL  " + name);
-        console.log("        " + (err && err.message ? err.message.split("\n")[0] : err));
-    }
-}
 
 // ---------------------------------------------------------------------------
-console.log("frame extraction shapes");
 
 test("the reCAPTCHA frame extracts as a huge, near-wordless blob", () => {
     // This is the shape the old character-length picker fell for: enormous bytes,
@@ -137,7 +123,6 @@ test("the SPA shell extracts as low signal, not as a full page", () => {
 });
 
 // ---------------------------------------------------------------------------
-console.log("frame selection end to end");
 
 test("LinkedIn shape: content in the top frame beats a reCAPTCHA subframe", () => {
     const top = frame(0, JOB_HTML, JOB_URL);
@@ -175,5 +160,3 @@ test("belt and suspenders: a junk frame with MORE words than an empty shell stil
 });
 
 // ---------------------------------------------------------------------------
-console.log("\n" + passed + " passed, " + failed + " failed");
-process.exit(failed ? 1 : 0);

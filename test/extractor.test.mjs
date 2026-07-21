@@ -17,6 +17,7 @@
  */
 
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import { extract } from "./harness.mjs";
 
 const PROSE =
@@ -25,23 +26,7 @@ const PROSE =
     "so it reads as genuine content rather than boilerplate, with enough length to " +
     "clear the threshold comfortably on any of the fixtures below.";
 
-let passed = 0;
-let failed = 0;
-
-function test(name, fn) {
-    try {
-        fn();
-        passed += 1;
-        console.log("  ok    " + name);
-    } catch (err) {
-        failed += 1;
-        console.log("  FAIL  " + name);
-        console.log("        " + (err && err.message ? err.message.split("\n")[0] : err));
-    }
-}
-
 // ---------------------------------------------------------------------------
-console.log("content root selection");
 
 test("picks <main> and reports content_source main", () => {
     const r = extract(`<!DOCTYPE html><html lang="en"><head>
@@ -80,7 +65,6 @@ test("falls back to the density heuristic when there is no landmark", () => {
 });
 
 // ---------------------------------------------------------------------------
-console.log("leading chrome peel");
 
 test("peels a leading nav that sits inside the content root", () => {
     const r = extract(`<!DOCTYPE html><html><head><title>Nav</title></head><body>
@@ -107,7 +91,6 @@ test("does not peel a nav phrase that only appears mid-body", () => {
 });
 
 // ---------------------------------------------------------------------------
-console.log("structured data and flags");
 
 test("collects JSON-LD blocks, flattening arrays", () => {
     const r = extract(`<!DOCTYPE html><html><head><title>SD</title>
@@ -142,17 +125,20 @@ test("does not flag a full page as low signal", () => {
 });
 
 // ---------------------------------------------------------------------------
-console.log("more content roots");
 
-test("selects a role=main container (reported as its tag, div)", () => {
-    // A [role=main] element is chosen, and content_source is that element's tag.
-    // For the common case of a div carrying the role, that is "div", which is
-    // distinct from "heuristic" and "body" and so still identifies the path.
+test("selects a role=main container, reported by its tag not as a landmark", () => {
+    // A [role=main] element is chosen, and content_source is that element's tag
+    // rather than one of the landmark or fallback keywords. Asserting membership,
+    // instead of the literal "div", keeps the test correct if the role's carrier
+    // is later a <section> or other element while the behaviour is unchanged.
+    const LANDMARK_OR_FALLBACK = new Set(["main", "article", "heuristic", "body"]);
     const r = extract(`<!DOCTYPE html><html><head><title>Aria</title></head><body>
         <header><nav>Home About Contact</nav></header>
         <div role="main"><h1>Aria Title</h1><p>${PROSE}</p></div>
       </body></html>`);
-    assert.equal(r.contentSource, "div");
+    assert.ok(!LANDMARK_OR_FALLBACK.has(r.contentSource),
+        "role=main is reported by tag, not as a landmark or fallback");
+    assert.equal(r.contentSource, "div", "the carrier here is a div");
     assert.ok(r.rawText.includes("real article body"));
     assert.ok(!r.rawText.includes("Home About Contact"));
 });
@@ -219,8 +205,39 @@ test("marks a script-only shell as low signal", () => {
     assert.equal(r.lowSignal, true);
 });
 
+test("does not count text hidden with display:none, hidden, or aria-hidden", () => {
+    // A real browser's innerText drops text hidden by CSS or the hidden and
+    // aria-hidden attributes; textContent would keep it. Hidden boilerplate inside
+    // the content root must not inflate the text or defeat the low-signal floor.
+    const r = extract(`<!DOCTYPE html><html><head><title>Hidden</title>
+        <style>.gone { display: none; }</style>
+      </head><body>
+        <main>
+          <p>${PROSE}</p>
+          <p style="display:none">HIDDEN_INLINE boilerplate that should never appear.</p>
+          <p class="gone">HIDDEN_CLASS boilerplate that should never appear.</p>
+          <div hidden>HIDDEN_ATTR boilerplate that should never appear.</div>
+          <div aria-hidden="true">HIDDEN_ARIA boilerplate that should never appear.</div>
+        </main>
+      </body></html>`);
+    assert.equal(r.contentSource, "main");
+    assert.ok(r.rawText.includes("real article body"));
+    assert.ok(!r.rawText.includes("HIDDEN_INLINE"));
+    assert.ok(!r.rawText.includes("HIDDEN_CLASS"));
+    assert.ok(!r.rawText.includes("HIDDEN_ATTR"));
+    assert.ok(!r.rawText.includes("HIDDEN_ARIA"));
+});
+
+test("marks a page as low signal when its only text is hidden", () => {
+    // With visibility respected, a landmark whose text is all display:none reads
+    // as an empty shell, the same as a client-rendered page that never populated.
+    const r = extract(`<!DOCTYPE html><html><head><title>Hidden Shell</title></head><body>
+        <main><p style="display:none">${PROSE.repeat(3)}</p></main>
+      </body></html>`);
+    assert.equal(r.lowSignal, true);
+});
+
 // ---------------------------------------------------------------------------
-console.log("metadata reads");
 
 test("resolves site_name, author, published, and the description fallback", () => {
     // No plain description or og:description is present, so description falls
@@ -241,7 +258,6 @@ test("resolves site_name, author, published, and the description fallback", () =
 });
 
 // ---------------------------------------------------------------------------
-console.log("structured data (multiple and duplicate)");
 
 test("collects several blocks, dedupes identical ones, spreads arrays", () => {
     const article = '{"@context":"https://schema.org","@type":"Article","headline":"X"}';
@@ -259,7 +275,6 @@ test("collects several blocks, dedupes identical ones, spreads arrays", () => {
 });
 
 // ---------------------------------------------------------------------------
-console.log("leading chrome peel (multiple blocks)");
 
 test("peels both a leading nav and a leading aside", () => {
     const r = extract(`<!DOCTYPE html><html><head><title>Chrome</title></head><body>
@@ -277,5 +292,3 @@ test("peels both a leading nav and a leading aside", () => {
 });
 
 // ---------------------------------------------------------------------------
-console.log("\n" + passed + " passed, " + failed + " failed");
-process.exit(failed ? 1 : 0);

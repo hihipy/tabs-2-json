@@ -19,6 +19,7 @@
  */
 
 import assert from "node:assert/strict";
+import { test } from "node:test";
 import { JSDOM } from "jsdom";
 import { extract } from "./harness.mjs";
 import { buildRecord, DEFAULT_SETTINGS } from "../src/lib/extract.js";
@@ -117,23 +118,8 @@ const RECAPTCHA_URL = "https://www.google.com/recaptcha/enterprise/anchor?k=6Lc&
 const VIDEO_URL = "https://www.youtube.com/watch?v=dQw4w9WgXcQ";
 
 // ---------------------------------------------------------------------------
-let passed = 0;
-let failed = 0;
-
-function test(name, fn) {
-    try {
-        fn();
-        passed += 1;
-        console.log("  ok    " + name);
-    } catch (err) {
-        failed += 1;
-        console.log("  FAIL  " + name);
-        console.log("        " + (err && err.message ? err.message.split("\n")[0] : err));
-    }
-}
 
 // ---------------------------------------------------------------------------
-console.log("record assembly, full flow");
 
 test("LinkedIn shape: real content, no content_frame_url, clean record", () => {
     const frames = [frame(0, JOB_HTML, JOB_URL), frame(2, RECAPTCHA_HTML, RECAPTCHA_URL)];
@@ -228,5 +214,3 @@ test("stripUrlParams strips the query from url and content_frame_url", () => {
 });
 
 // ---------------------------------------------------------------------------
-console.log("\n" + passed + " passed, " + failed + " failed");
-process.exit(failed ? 1 : 0);
