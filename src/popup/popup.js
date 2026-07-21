@@ -14,13 +14,8 @@ import {
     isScriptable,
     isBlocked,
     outputUrl,
-    isVideoOnly,
-    cleanText,
-    prune,
-    sanitizeStructured,
     timestampName,
-    selectBodyFrame,
-    wordCount
+    buildRecord
 } from "../lib/extract.js";
 
 // ---------------------------------------------------------------------------
@@ -29,9 +24,6 @@ import {
 
 /** Storage key for the user's theme preference. */
 const THEME_KEY = "theme";
-
-/** Character cap applied to the text of video-only pages when trimming is on. */
-const VIDEO_SNIPPET_CHARS = 300;
 
 /**
  * Minimum length of extracted text below which a capture is treated as low
@@ -281,87 +273,14 @@ async function captureTab(tab) {
             throw new Error("No readable frame in this tab.");
         }
 
-        // Tab identity (title, URL, canonical) comes from the top frame, which owns
-        // the address-bar URL.
-        const topFrame = frames.find((f) => f.frameId === 0) || frames[0];
-        // Body content comes from the frame with the most words, after junk frames
-        // (captcha, ads, analytics, consent, chat) are excluded by URL. Ranking by
-        // words rather than characters keeps a machine-generated blob, such as the
-        // reCAPTCHA anchor frame's base64 payload, from beating the real content.
-        const bodyFrame = selectBodyFrame(frames, topFrame);
-
-        const meta = topFrame.result;
-        const body = bodyFrame.result;
-        const fromSubFrame = bodyFrame !== topFrame;
-
-        const structured = body.structured || [];
-        const videoOnly = isVideoOnly(structured);
-
-        // A video-only page carries little useful body text; the VideoObject in the
-        // structured data is the real content. Flag it so a consumer can skip the
-        // body and lean on the structured data instead.
-        let lowSignal = Boolean(body.lowSignal) || videoOnly;
-
-        let text = cleanText(body.rawText);
-        let textTruncated = false;
-
-        // Video-only pages carry little useful body text, so trim to a snippet and
-        // rely on the VideoObject in the structured data instead.
-        if (settings.trimVideoText && videoOnly && text.length > VIDEO_SNIPPET_CHARS) {
-            text = text.slice(0, VIDEO_SNIPPET_CHARS).trim();
-            textTruncated = true;
-        }
-
-        // Apply the optional overall character cap.
-        if (settings.maxTextChars > 0 && text.length > settings.maxTextChars) {
-            text = text.slice(0, settings.maxTextChars).trim();
-            textTruncated = true;
-        }
-
-        // Optional metadata prefers the top frame and falls back to the content
-        // frame, which for an embedded page often carries the real values.
-        const record = {
-            id: tab.id,
-            title: tab.title || meta.documentTitle || body.documentTitle || "",
-            url: outputUrl(tab.url || "", settings.stripUrlParams),
-            canonical_url: outputUrl(meta.canonical || body.canonical, settings.stripUrlParams),
-            site_name: meta.siteName || body.siteName,
-            description: meta.description || body.description,
-            language: meta.lang || body.lang,
-            author: meta.author || body.author,
-            published_at: meta.published || body.published,
-            content_source: body.contentSource,
-            content_type: videoOnly ? "video" : null,
-            captured_at: capturedAt,
-            ok: true
-        };
-
-        // When the body came from a sub-frame, record which frame, so a consumer
-        // can see the text is not from the tab's own URL.
-        if (fromSubFrame && body.frameUrl) {
-            record.content_frame_url = outputUrl(body.frameUrl, settings.stripUrlParams);
-        }
-
-        if (settings.includeHeadings) {
-            record.headings = body.headings || [];
-        }
-        if (settings.includeStructuredData) {
-            record.structured_data = structured.map(sanitizeStructured);
-        }
-        if (settings.includeText) {
-            record.text = text;
-            record.word_count = wordCount(text);
-            if (textTruncated) {
-                record.text_truncated = true;
-            }
-        }
-
-        // Present only when true; absence means the extraction looked normal.
-        if (lowSignal) {
-            record.low_signal = true;
-        }
-
-        return prune(record);
+        // Everything from frame selection to the finished record is pure and lives
+        // in buildRecord, so it can be tested without a browser.
+        return buildRecord(
+            { id: tab.id, title: tab.title, url: tab.url },
+            frames,
+            settings,
+            capturedAt
+        );
     } catch (err) {
         return {
             id: tab.id,
