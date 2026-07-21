@@ -37,6 +37,20 @@ import {
     parseDomains
 } from "../src/lib/extract.js";
 
+// stripHtml and sanitizeStructured's markup path need a DOMParser, which plain
+// Node lacks. When jsdom is installed, as it is for npm test, load one so those
+// checks run here too; running this file on its own without jsdom still works,
+// and they skip. This keeps the suite dependency-free to run while using jsdom
+// opportunistically when it is present.
+if (typeof globalThis.DOMParser === "undefined") {
+    try {
+        const { JSDOM } = await import("jsdom");
+        globalThis.DOMParser = new JSDOM().window.DOMParser;
+    } catch {
+        // jsdom is not installed; the DOM-dependent checks below will skip.
+    }
+}
+
 // Skipped checks use node:test's skip option so they report as skipped, not passed.
 function skip(name, reason) {
     test(name, { skip: reason }, () => {});

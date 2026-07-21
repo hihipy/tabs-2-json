@@ -378,8 +378,124 @@ export function buildRecord(tab, frames, settings, capturedAt) {
 }
 
 // ---------------------------------------------------------------------------
-// Structured-data helpers
+// Capture orchestration
 // ---------------------------------------------------------------------------
+
+/**
+ * Race a promise against a timeout. If the timeout wins, the returned promise
+ * rejects with the given message; the original promise is left to settle on its
+ * own. The timer is always cleared so it cannot outlive the race.
+ * @param {Promise} promise
+ * @param {number} ms
+ * @param {string} message
+ * @returns {Promise}
+ */
+export function withTimeout(promise, ms, message) {
+    let timer;
+    const timeout = new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error(message)), ms);
+    });
+    return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
+
+/**
+ * Read a page, preferring every frame but falling back to the top frame when the
+ * all-frames read is slow or fails. This keeps a slow embedded frame (a map, an
+ * ad, an analytics frame) from stalling the read: after subframeTimeoutMs the
+ * top frame is read instead, so the page's own content still comes back. Only the
+ * top-frame read, bounded by captureTimeoutMs, is allowed to fail the tab.
+ *
+ * Both reads are supplied as functions so this is testable without a browser: in
+ * the extension they run chrome.scripting.executeScript, in tests they are fakes.
+ * @param {() => Promise<Array>} readAllFrames
+ * @param {() => Promise<Array>} readTopFrame
+ * @param {number} subframeTimeoutMs
+ * @param {number} captureTimeoutMs
+ * @param {string} timeoutMessage Message when the top-frame read also times out.
+ * @returns {Promise<Array>}
+ */
+export function readWithFallback(
+    readAllFrames,
+    readTopFrame,
+    subframeTimeoutMs,
+    captureTimeoutMs,
+    timeoutMessage
+) {
+    return withTimeout(readAllFrames(), subframeTimeoutMs, "subframe-timeout").catch(() =>
+        withTimeout(readTopFrame(), captureTimeoutMs, timeoutMessage)
+    );
+}
+
+/**
+ * Run captureOne over every item in parallel, reporting progress as each
+ * completes and preserving input order in the results. captureOne is expected not
+ * to reject (capture failures come back as records), so no rejection is caught.
+ * @param {Array} items
+ * @param {(item: *) => Promise<*>} captureOne
+ * @param {(completed: number, total: number) => void} [onProgress]
+ * @returns {Promise<Array>}
+ */
+export function captureAll(items, captureOne, onProgress) {
+    const total = items.length;
+    let completed = 0;
+    return Promise.all(
+        items.map((item) =>
+            Promise.resolve(captureOne(item)).then((result) => {
+                completed += 1;
+                if (onProgress) {
+                    onProgress(completed, total);
+                }
+                return result;
+            })
+        )
+    );
+}
+
+/**
+ * Describe capture failures for the status line: how many failed and, of those,
+ * how many were timeouts. Empty string when nothing failed.
+ * @param {number} failed
+ * @param {number} timedOut
+ * @returns {string}
+ */
+export function failureNote(failed, timedOut) {
+    if (!failed) {
+        return "";
+    }
+    const parts = [];
+    if (timedOut) {
+        parts.push(timedOut + " timed out");
+    }
+    const other = failed - timedOut;
+    if (other) {
+        parts.push(other + " could not be read");
+    }
+    return " " + parts.join(", ") + ".";
+}
+
+/**
+ * Wrap an async task so that while one call is in flight, further calls are
+ * ignored and return undefined. Used to stop a second export from starting while
+ * one is still running, which otherwise queues duplicate downloads when a slow or
+ * blocked Save As dialog makes the first look stuck. The lock is released whether
+ * the task resolves or rejects, so a failure does not wedge the button.
+ * @param {(...args: any[]) => Promise<any>} task
+ * @returns {(...args: any[]) => Promise<any>}
+ */
+export function guardConcurrent(task) {
+    let running = false;
+    return async function guarded(...args) {
+        if (running) {
+            return undefined;
+        }
+        running = true;
+        try {
+            return await task(...args);
+        } finally {
+            running = false;
+        }
+    };
+}
 
 /**
  * Recursively collect every schema.org @type found in a JSON-LD node,

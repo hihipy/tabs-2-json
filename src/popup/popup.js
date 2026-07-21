@@ -15,7 +15,11 @@ import {
     isBlocked,
     outputUrl,
     timestampName,
-    buildRecord
+    buildRecord,
+    readWithFallback,
+    captureAll,
+    failureNote,
+    guardConcurrent
 } from "../lib/extract.js";
 
 // ---------------------------------------------------------------------------
@@ -33,6 +37,23 @@ const THEME_KEY = "theme";
  * detected reliably without site-specific logic.
  */
 const LOW_SIGNAL_MIN_CHARS = 200;
+
+/**
+ * How long to wait for the all-frames read before falling back to the top frame.
+ * Injecting into every frame captures content embedded in a cross-origin iframe
+ * (applicant tracking systems, document viewers), but it also waits on frames
+ * that never matter and can be slow to settle, such as embedded maps, ad, and
+ * analytics frames. When that wait exceeds this budget, the top frame alone is
+ * read instead, which returns the page's own content quickly.
+ */
+const SUBFRAME_TIMEOUT_MS = 4000;
+
+/**
+ * Hard ceiling for the top-frame fallback read. A top-frame read resolves in
+ * milliseconds; this exists so a genuinely unresponsive page becomes an error
+ * record rather than stalling the export with no way out.
+ */
+const CAPTURE_TIMEOUT_MS = 15000;
 
 const tabListEl = document.getElementById("tab-list");
 const selectAllEl = document.getElementById("select-all");
@@ -248,6 +269,30 @@ function selectedTabIds() {
 }
 
 /**
+ * Read a tab's frames, preferring all frames and falling back to the top frame
+ * when sub-frames are slow. The read logic lives in readWithFallback so it is
+ * tested without a browser; here it is wired to chrome.scripting.
+ * @param {chrome.tabs.Tab} tab
+ * @returns {Promise<Array>} Injection results, one per frame that responded.
+ */
+function readFrames(tab) {
+    const inject = (target) =>
+        chrome.scripting.executeScript({
+            target,
+            func: pageExtractor,
+            args: [LOW_SIGNAL_MIN_CHARS]
+        });
+
+    return readWithFallback(
+        () => inject({ tabId: tab.id, allFrames: true }),
+        () => inject({ tabId: tab.id, frameIds: [0] }),
+        SUBFRAME_TIMEOUT_MS,
+        CAPTURE_TIMEOUT_MS,
+        "Timed out after " + Math.round(CAPTURE_TIMEOUT_MS / 1000) + " seconds reading this tab."
+    );
+}
+
+/**
  * Capture a single tab, applying the active settings to shape the output.
  * Never throws: capture failures are returned as records with ok set to false.
  * @param {chrome.tabs.Tab} tab
@@ -262,11 +307,9 @@ async function captureTab(tab) {
         // content inside a cross-origin iframe, leaving the top frame as a shell.
         // Host permission for the frame's origin is required, which <all_urls>
         // provides. A frame the script cannot run in is simply absent from results.
-        const injections = await chrome.scripting.executeScript({
-            target: { tabId: tab.id, allFrames: true },
-            func: pageExtractor,
-            args: [LOW_SIGNAL_MIN_CHARS]
-        });
+        // readFrames bounds the wait on slow sub-frames and falls back to the top
+        // frame, so an embedded map or ad frame cannot stall the read.
+        const injections = await readFrames(tab);
 
         const frames = injections.filter((f) => f && f.result);
         if (frames.length === 0) {
@@ -299,17 +342,30 @@ async function captureTab(tab) {
 
 /**
  * Capture all selected tabs and assemble the export payload as a JSON string.
- * @returns {Promise<{json: string, count: number, failed: number}>}
+ * @returns {Promise<{json: string, count: number, failed: number, timedOut: number}>}
  */
 async function buildExport() {
     const ids = selectedTabIds();
     const tabs = allTabs.filter((tab) => ids.includes(tab.id));
-    setStatus(
-        "Reading " + tabs.length + " tab" + (tabs.length === 1 ? "" : "s") + "..."
-    );
+    const total = tabs.length;
+    const noun = total === 1 ? "tab" : "tabs";
 
-    const results = await Promise.all(tabs.map(captureTab));
+    setStatus("Reading " + total + " " + noun + "...");
+
+    // Reads run in parallel; captureAll reports each completion so the user sees
+    // progress rather than a single frozen line.
+    const results = await captureAll(tabs, captureTab, (done) => {
+        setStatus("Read " + done + " of " + total + " " + noun + "...");
+    });
     const failed = results.filter((r) => !r.ok).length;
+    const timedOut = results.filter(
+        (r) => !r.ok && typeof r.error === "string" && r.error.includes("Timed out")
+    ).length;
+
+    // Serializing a large export can take a beat. Show a phase and yield once so
+    // the message paints before the synchronous stringify blocks the thread.
+    setStatus("Processing " + total + " " + noun + "...");
+    await new Promise((resolve) => setTimeout(resolve));
 
     const payload = {
         exported_at: new Date().toISOString(),
@@ -321,7 +377,8 @@ async function buildExport() {
     return {
         json: JSON.stringify(payload, null, indent),
         count: results.length,
-        failed: failed
+        failed: failed,
+        timedOut: timedOut
     };
 }
 
@@ -335,54 +392,64 @@ function setStatus(message, isError) {
     statusEl.classList.toggle("error", Boolean(isError));
 }
 
-downloadBtn.addEventListener("click", async () => {
+/**
+ * Deliver a built export as a downloaded file. Saves straight to the browser's
+ * downloads folder under the timestamped name, with no Save As dialog: forcing
+ * the dialog can hang in some browsers (a blocked prompt queues repeat downloads)
+ * and the timestamped name means the file rarely needs renaming anyway.
+ */
+async function deliverDownload({ json, count, failed, timedOut }) {
+    setStatus("Saving...");
+    const blob = new Blob([json], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
     try {
-        const { json, count, failed } = await buildExport();
-        const blob = new Blob([json], { type: "application/json" });
-        const url = URL.createObjectURL(blob);
         await chrome.downloads.download({
             url: url,
             filename: timestampName(),
-            // Force the Save As dialog on every platform so the user can rename
-            // or relocate the file. Without this, Windows saves straight to the
-            // downloads folder with no prompt, regardless of the timestamped name.
-            saveAs: true
+            saveAs: false
         });
-        // Release the object URL once the download has had time to start.
+    } finally {
+        // Release the object URL once the download has had time to start, whether
+        // or not it succeeded, so a failed or cancelled save does not leak it.
         setTimeout(() => URL.revokeObjectURL(url), 10000);
-        setStatus(
-            "Downloaded " +
-            count +
-            " tab" +
-            (count === 1 ? "" : "s") +
-            (failed ? " (" + failed + " could not be read)" : "") +
-            "."
-        );
+    }
+    const noun = count === 1 ? "tab" : "tabs";
+    setStatus(
+        "Downloaded " + count + " " + noun + "." + failureNote(failed, timedOut),
+        count > 0 && failed === count
+    );
+}
+
+/** Deliver a built export to the clipboard. */
+async function deliverCopy({ json, count, failed, timedOut }) {
+    setStatus("Copying...");
+    await navigator.clipboard.writeText(json);
+    const noun = count === 1 ? "tab" : "tabs";
+    setStatus(
+        "Copied " + count + " " + noun + " to clipboard." + failureNote(failed, timedOut),
+        count > 0 && failed === count
+    );
+}
+
+// One export at a time. guardConcurrent ignores a click while an export is in
+// flight, and the buttons are disabled for the duration, so a slow or blocked
+// Save As dialog cannot lead to a stack of queued downloads.
+const runExport = guardConcurrent(async (deliver, failVerb) => {
+    downloadBtn.disabled = true;
+    copyBtn.disabled = true;
+    try {
+        const result = await buildExport();
+        await deliver(result);
     } catch (err) {
-        setStatus(
-            "Download failed: " + (err && err.message ? err.message : err),
-            true
-        );
+        setStatus(failVerb + " failed: " + (err && err.message ? err.message : err), true);
+    } finally {
+        downloadBtn.disabled = false;
+        copyBtn.disabled = false;
     }
 });
 
-copyBtn.addEventListener("click", async () => {
-    try {
-        const { json, count, failed } = await buildExport();
-        await navigator.clipboard.writeText(json);
-        setStatus(
-            "Copied " +
-            count +
-            " tab" +
-            (count === 1 ? "" : "s") +
-            " to clipboard" +
-            (failed ? " (" + failed + " could not be read)" : "") +
-            "."
-        );
-    } catch (err) {
-        setStatus("Copy failed: " + (err && err.message ? err.message : err), true);
-    }
-});
+downloadBtn.addEventListener("click", () => runExport(deliverDownload, "Download"));
+copyBtn.addEventListener("click", () => runExport(deliverCopy, "Copy"));
 
 // ---------------------------------------------------------------------------
 // Toolbar actions
