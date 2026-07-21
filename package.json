@@ -1,6 +1,6 @@
 {
   "name": "tabs-2-json",
-  "version": "2026.7.0",
+  "version": "2026.7.6",
   "description": "Browser extension that exports the text and metadata of selected tabs to JSON. This package.json exists only for the test suite; the extension itself has no build step and no runtime dependencies.",
   "private": true,
   "type": "module",

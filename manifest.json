@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tabs2JSON",
-  "version": "2026.7.5",
+  "version": "2026.7.6",
   "description": "Export full page text and metadata from selected Chrome tabs to JSON.",
   "icons": {
     "16": "src/icons/icon16.png",
