@@ -21,6 +21,9 @@ import {
     hostOf,
     isBlocked,
     outputUrl,
+    isJunkFrame,
+    wordCount,
+    selectBodyFrame,
     collectTypes,
     schemaTypes,
     isVideoOnly,
@@ -115,6 +118,91 @@ test("leaves the url intact when disabled", () => {
 });
 test("returns the input unchanged when it is not a url", () => {
     assert.equal(outputUrl("not a url", true), "not a url");
+});
+
+// ---------------------------------------------------------------------------
+console.log("isJunkFrame");
+test("flags reCAPTCHA by host and by google.com path", () => {
+    assert.equal(
+        isJunkFrame("https://www.google.com/recaptcha/enterprise/anchor?k=abc"),
+        true
+    );
+    assert.equal(isJunkFrame("https://www.recaptcha.net/recaptcha/api2/anchor"), true);
+    assert.equal(isJunkFrame("https://newassets.hcaptcha.com/captcha/v1/x"), true);
+});
+test("flags ad, analytics, consent, and chat frames", () => {
+    assert.equal(isJunkFrame("https://tpc.googlesyndication.com/safeframe/x"), true);
+    assert.equal(isJunkFrame("https://www.google-analytics.com/g/collect"), true);
+    assert.equal(isJunkFrame("https://cdn.cookielaw.org/consent/x"), true);
+    assert.equal(isJunkFrame("https://widget.intercom.io/widget/abc"), true);
+    assert.equal(isJunkFrame("https://www.facebook.com/plugins/like.php"), true);
+});
+test("does not flag ordinary content frames on shared hosts", () => {
+    assert.equal(isJunkFrame("https://www.google.com/search?q=data"), false);
+    assert.equal(isJunkFrame("https://www.facebook.com/some/profile"), false);
+    assert.equal(isJunkFrame("https://careers-wcu.icims.com/jobs/1234/job"), false);
+    assert.equal(isJunkFrame("https://www.linkedin.com/jobs/view/999"), false);
+});
+test("returns false for an unparseable or empty url", () => {
+    assert.equal(isJunkFrame(""), false);
+    assert.equal(isJunkFrame(null), false);
+    assert.equal(isJunkFrame("not a url"), false);
+});
+
+// ---------------------------------------------------------------------------
+console.log("wordCount");
+test("counts whitespace-delimited words and ignores edges", () => {
+    assert.equal(wordCount("  the quick  brown fox "), 4);
+    assert.equal(wordCount("one"), 1);
+    assert.equal(wordCount(""), 0);
+    assert.equal(wordCount(null), 0);
+});
+test("scores a whitespace-free blob near nothing", () => {
+    // A base64-style payload with no spaces is a single token, however long.
+    assert.equal(wordCount("A".repeat(50000)), 1);
+});
+
+// ---------------------------------------------------------------------------
+console.log("selectBodyFrame");
+test("prefers the sub-frame with the most words (iCIMS-style embed)", () => {
+    const top = { frameId: 0, result: { frameUrl: "https://jobs.example.com/", rawText: "Apply here" } };
+    const embed = {
+        frameId: 3,
+        result: {
+            frameUrl: "https://careers.icims.com/jobs/1/x",
+            rawText: "Senior analyst role with many detailed responsibilities and duties listed here"
+        }
+    };
+    assert.equal(selectBodyFrame([top, embed], top), embed);
+});
+test("excludes a huge reCAPTCHA frame so the top content frame wins", () => {
+    // Mirrors the LinkedIn failure: the recaptcha frame's char length dwarfs the
+    // page, but it is one whitespace-free token, and it is a junk host besides.
+    const top = {
+        frameId: 0,
+        result: {
+            frameUrl: "https://www.linkedin.com/jobs/search-results/?x=1",
+            rawText: "Data Analyst II SQL Developer OpenLoop full time remote role responsibilities and requirements"
+        }
+    };
+    const captcha = {
+        frameId: 2,
+        result: {
+            frameUrl: "https://www.google.com/recaptcha/enterprise/anchor?k=abc",
+            rawText: 'recaptcha.anchor.Main.init("' + "x".repeat(40000) + '");'
+        }
+    };
+    assert.equal(selectBodyFrame([top, captcha], top), top);
+});
+test("falls back to the top frame when every sub-frame is junk", () => {
+    const top = { frameId: 0, result: { frameUrl: "https://site.com/", rawText: "thin shell" } };
+    const ad = { frameId: 1, result: { frameUrl: "https://adnxs.com/x", rawText: "buy now ".repeat(200) } };
+    assert.equal(selectBodyFrame([top, ad], top), top);
+});
+test("keeps the top frame on a word-count tie", () => {
+    const top = { frameId: 0, result: { frameUrl: "https://site.com/", rawText: "one two three" } };
+    const other = { frameId: 5, result: { frameUrl: "https://embed.site.com/x", rawText: "four five six" } };
+    assert.equal(selectBodyFrame([top, other], top), top);
 });
 
 // ---------------------------------------------------------------------------

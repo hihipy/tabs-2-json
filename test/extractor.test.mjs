@@ -2,43 +2,22 @@
  * Fixture tests for the injected page extractor in src/lib/extractor.js.
  *
  * pageExtractor runs in a page and leans on innerText, which plain Node does not
- * have and jsdom does not implement. This harness loads each fixture into jsdom
- * and polyfills innerText as textContent, then runs the real exported function.
+ * have and jsdom does not implement. The shared harness in test/harness.mjs loads
+ * each fixture into jsdom and installs a faithful innerText that drops
+ * non-rendered elements (script, style, noscript, template), matching the one
+ * property of innerText the extractor depends on.
  *
  * That covers what matters most and is otherwise untested: which content root is
  * chosen (main / article / role=main / density heuristic / body) and whether a
- * leading nav block is peeled. It approximates innerText with textContent, so it
- * asserts structural behaviour (right root, nav removed), not the exact
+ * leading nav block is peeled. It approximates innerText, so it asserts
+ * structural behaviour (right root, nav removed, no script text), not the exact
  * whitespace and visibility semantics a real browser produces.
  *
  * Requires jsdom (a dev dependency). Run with:  node test/extractor.test.mjs
  */
 
 import assert from "node:assert/strict";
-import { JSDOM } from "jsdom";
-import { pageExtractor } from "../src/lib/extractor.js";
-
-const LOW_SIGNAL_MIN_CHARS = 200;
-
-// Run the real pageExtractor against an HTML string under jsdom.
-function extract(html) {
-    const dom = new JSDOM(html);
-    // jsdom has no innerText; approximate it with textContent for the run.
-    Object.defineProperty(dom.window.HTMLElement.prototype, "innerText", {
-        get() {
-            return this.textContent;
-        },
-        configurable: true
-    });
-    const previous = global.document;
-    global.document = dom.window.document;
-    try {
-        return pageExtractor(LOW_SIGNAL_MIN_CHARS);
-    } finally {
-        global.document = previous;
-        dom.window.close();
-    }
-}
+import { extract } from "./harness.mjs";
 
 const PROSE =
     "This is the real article body. " +
@@ -160,6 +139,141 @@ test("does not flag a full page as low signal", () => {
         <main><p>${PROSE}</p></main>
       </body></html>`);
     assert.equal(r.lowSignal, false);
+});
+
+// ---------------------------------------------------------------------------
+console.log("more content roots");
+
+test("selects a role=main container (reported as its tag, div)", () => {
+    // A [role=main] element is chosen, and content_source is that element's tag.
+    // For the common case of a div carrying the role, that is "div", which is
+    // distinct from "heuristic" and "body" and so still identifies the path.
+    const r = extract(`<!DOCTYPE html><html><head><title>Aria</title></head><body>
+        <header><nav>Home About Contact</nav></header>
+        <div role="main"><h1>Aria Title</h1><p>${PROSE}</p></div>
+      </body></html>`);
+    assert.equal(r.contentSource, "div");
+    assert.ok(r.rawText.includes("real article body"));
+    assert.ok(!r.rawText.includes("Home About Contact"));
+});
+
+test("heuristic penalises a link-heavy block so prose wins", () => {
+    // The nav block is longer than the content block by raw length, but it is all
+    // link text; the link penalty pushes its score negative and the prose wins.
+    const navLinks = '<a href="#">Menu item link</a>'.repeat(20);
+    const r = extract(`<!DOCTYPE html><html><head><title>Links</title></head><body>
+        <div id="nav">${navLinks}</div>
+        <div id="content"><p>${PROSE}</p></div>
+      </body></html>`);
+    assert.equal(r.contentSource, "heuristic");
+    assert.ok(r.rawText.includes("real article body"));
+    assert.ok(!r.rawText.includes("Menu item link"));
+});
+
+test("falls back to body when no block clears the density bar", () => {
+    // Text spread across bare paragraphs with no container block leaves the
+    // heuristic no candidate, so the whole body becomes the root.
+    const r = extract(`<!DOCTYPE html><html><head><title>Loose</title></head><body>
+        <p>${PROSE}</p>
+      </body></html>`);
+    assert.equal(r.contentSource, "body");
+    assert.ok(r.rawText.includes("real article body"));
+    assert.equal(r.lowSignal, false);
+});
+
+test("reads content from a table-based layout", () => {
+    const r = extract(`<!DOCTYPE html><html><head><title>Table</title></head><body>
+        <table><tbody><tr><td><p>${PROSE}</p></td></tr></tbody></table>
+      </body></html>`);
+    assert.equal(r.contentSource, "heuristic");
+    assert.ok(r.rawText.includes("real article body"));
+});
+
+test("does not leak inline script or style text into rawText", () => {
+    // A real browser's innerText never returns script or style text. A page whose
+    // content root carries an inline script (analytics, widgets) must not have that
+    // code counted as content, or a shell page would look full and a real page's
+    // word count would be inflated.
+    const r = extract(`<!DOCTYPE html><html><head><title>Scripted</title></head><body>
+        <main>
+          <style>.hidden{display:none}</style>
+          <script>var tracker = "should not appear in rawText"; init(tracker);</script>
+          <p>${PROSE}</p>
+        </main>
+      </body></html>`);
+    assert.equal(r.contentSource, "main");
+    assert.ok(r.rawText.includes("real article body"));
+    assert.ok(!r.rawText.includes("should not appear"));
+    assert.ok(!r.rawText.includes("display:none"));
+});
+
+test("marks a script-only shell as low signal", () => {
+    // The static HTML of a client-rendered page is often an empty landmark plus
+    // bootstrap scripts. With script text excluded, that must read as low signal
+    // rather than as a full page.
+    const r = extract(`<!DOCTYPE html><html><head><title>Shell</title></head><body>
+        <main>
+          <script>window.__DATA__ = ${JSON.stringify(PROSE.repeat(5))};</script>
+        </main>
+      </body></html>`);
+    assert.equal(r.lowSignal, true);
+});
+
+// ---------------------------------------------------------------------------
+console.log("metadata reads");
+
+test("resolves site_name, author, published, and the description fallback", () => {
+    // No plain description or og:description is present, so description falls
+    // through to twitter:description. author and published come from the
+    // article:* forms.
+    const r = extract(`<!DOCTYPE html><html lang="en-GB"><head>
+        <title>Meta</title>
+        <meta property="og:site_name" content="Example News">
+        <meta property="article:author" content="Jane Doe">
+        <meta property="article:published_time" content="2026-07-01">
+        <meta name="twitter:description" content="Fallback description.">
+      </head><body><main><p>${PROSE}</p></main></body></html>`);
+    assert.equal(r.siteName, "Example News");
+    assert.equal(r.author, "Jane Doe");
+    assert.equal(r.published, "2026-07-01");
+    assert.equal(r.description, "Fallback description.");
+    assert.equal(r.lang, "en-GB");
+});
+
+// ---------------------------------------------------------------------------
+console.log("structured data (multiple and duplicate)");
+
+test("collects several blocks, dedupes identical ones, spreads arrays", () => {
+    const article = '{"@context":"https://schema.org","@type":"Article","headline":"X"}';
+    const arrayBlock =
+        '[{"@type":"Organization","name":"Acme"},{"@type":"WebSite","name":"Acme.com"}]';
+    const r = extract(`<!DOCTYPE html><html><head><title>Multi</title>
+        <script type="application/ld+json">${article}</script>
+        <script type="application/ld+json">${article}</script>
+        <script type="application/ld+json">${arrayBlock}</script>
+      </head><body><main><p>${PROSE}</p></main></body></html>`);
+    // The duplicate Article is dropped; the array contributes two entries.
+    assert.equal(r.structured.length, 3);
+    const types = r.structured.map((n) => n["@type"]);
+    assert.deepEqual(types, ["Article", "Organization", "WebSite"]);
+});
+
+// ---------------------------------------------------------------------------
+console.log("leading chrome peel (multiple blocks)");
+
+test("peels both a leading nav and a leading aside", () => {
+    const r = extract(`<!DOCTYPE html><html><head><title>Chrome</title></head><body>
+        <main>
+          <nav>Home About Contact News Careers</nav>
+          <aside>Related links sidebar promotional widget content block here</aside>
+          <h1>Story Title</h1>
+          <p>${PROSE}</p>
+        </main>
+      </body></html>`);
+    const normalized = r.rawText.replace(/\s+/g, " ").trim();
+    assert.ok(!normalized.includes("Home About Contact"));
+    assert.ok(!normalized.includes("Related links sidebar"));
+    assert.ok(r.rawText.includes("real article body"));
 });
 
 // ---------------------------------------------------------------------------

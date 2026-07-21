@@ -18,7 +18,9 @@ import {
     cleanText,
     prune,
     sanitizeStructured,
-    timestampName
+    timestampName,
+    selectBodyFrame,
+    wordCount
 } from "../lib/extract.js";
 
 // ---------------------------------------------------------------------------
@@ -282,14 +284,11 @@ async function captureTab(tab) {
         // Tab identity (title, URL, canonical) comes from the top frame, which owns
         // the address-bar URL.
         const topFrame = frames.find((f) => f.frameId === 0) || frames[0];
-        // Body content comes from whichever frame yielded the most text, so an
-        // iframe-embedded article or posting wins over the surrounding shell.
-        // Ad and chat-widget frames carry little text and lose this comparison.
-        const bodyFrame = frames.reduce(
-            (best, f) =>
-                (f.result.rawText || "").length > (best.result.rawText || "").length ? f : best,
-            frames[0]
-        );
+        // Body content comes from the frame with the most words, after junk frames
+        // (captcha, ads, analytics, consent, chat) are excluded by URL. Ranking by
+        // words rather than characters keeps a machine-generated blob, such as the
+        // reCAPTCHA anchor frame's base64 payload, from beating the real content.
+        const bodyFrame = selectBodyFrame(frames, topFrame);
 
         const meta = topFrame.result;
         const body = bodyFrame.result;
@@ -351,7 +350,7 @@ async function captureTab(tab) {
         }
         if (settings.includeText) {
             record.text = text;
-            record.word_count = text ? text.split(/\s+/).filter(Boolean).length : 0;
+            record.word_count = wordCount(text);
             if (textTruncated) {
                 record.text_truncated = true;
             }

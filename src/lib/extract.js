@@ -112,6 +112,169 @@ export function outputUrl(url, stripParams) {
 }
 
 // ---------------------------------------------------------------------------
+// Frame selection
+// ---------------------------------------------------------------------------
+
+/**
+ * Hostname suffixes that never carry a page's main content: captcha widgets, ad
+ * and analytics frames, consent managers, and chat widgets. A frame served from
+ * one of these is excluded from the body-frame contest. Matched as a suffix, so
+ * an exact host or any subdomain qualifies.
+ */
+const JUNK_FRAME_HOSTS = [
+    // Captcha and bot-check widgets
+    "recaptcha.net",
+    "hcaptcha.com",
+    "challenges.cloudflare.com",
+    "arkoselabs.com",
+    "funcaptcha.com",
+    // Ads and ad exchanges
+    "doubleclick.net",
+    "googlesyndication.com",
+    "googleadservices.com",
+    "googletagmanager.com",
+    "googletagservices.com",
+    "google-analytics.com",
+    "adnxs.com",
+    "adsrvr.org",
+    "amazon-adsystem.com",
+    "criteo.com",
+    "criteo.net",
+    "taboola.com",
+    "outbrain.com",
+    "pubmatic.com",
+    "rubiconproject.com",
+    "openx.net",
+    "casalemedia.com",
+    "scorecardresearch.com",
+    "moatads.com",
+    "adform.net",
+    "smartadserver.com",
+    "3lift.com",
+    "bidswitch.net",
+    // Social embeds and tracking pixels
+    "connect.facebook.net",
+    "platform.twitter.com",
+    "syndication.twitter.com",
+    "platform.linkedin.com",
+    "ads.linkedin.com",
+    // Consent and cookie managers
+    "onetrust.com",
+    "cookielaw.org",
+    "trustarc.com",
+    "consensu.org",
+    "quantcast.com",
+    "quantserve.com",
+    "cookiebot.com",
+    "usercentrics.eu",
+    "usercentrics.com",
+    "privacy-mgmt.com",
+    // Chat, support, and feedback widgets
+    "intercom.io",
+    "intercom.com",
+    "intercomcdn.com",
+    "drift.com",
+    "zendesk.com",
+    "zdassets.com",
+    "livechatinc.com",
+    "tawk.to",
+    "crisp.chat",
+    "hotjar.com",
+    "walkme.com"
+];
+
+/**
+ * Host plus path-prefix rules for junk that lives on an otherwise-content
+ * domain, where the host alone cannot be blocked. reCAPTCHA and Google's ad
+ * frames sit under google.com and gstatic.com, which also serve real content,
+ * so only the specific paths are excluded.
+ */
+const JUNK_FRAME_PATHS = [
+    { host: "google.com", path: "/recaptcha" },
+    { host: "google.com", path: "/pagead" },
+    { host: "gstatic.com", path: "/recaptcha" },
+    { host: "facebook.com", path: "/plugins" },
+    { host: "facebook.com", path: "/tr" }
+];
+
+/**
+ * Return true when a host equals a suffix or is a subdomain of it.
+ * @param {string} host
+ * @param {string} suffix
+ * @returns {boolean}
+ */
+function hostHasSuffix(host, suffix) {
+    return host === suffix || host.endsWith("." + suffix);
+}
+
+/**
+ * Return true when a frame URL belongs to a known non-content frame: a captcha,
+ * ad, analytics, consent, or chat widget. Such a frame is never the page's real
+ * content, so it must not win the body-frame contest even when its payload is
+ * large (reCAPTCHA's anchor frame, for one, carries a very long base64 blob).
+ * @param {string} url
+ * @returns {boolean}
+ */
+export function isJunkFrame(url) {
+    let parsed;
+    try {
+        parsed = new URL(url);
+    } catch (err) {
+        return false;
+    }
+    const host = parsed.hostname.toLowerCase();
+    if (JUNK_FRAME_HOSTS.some((suffix) => hostHasSuffix(host, suffix))) {
+        return true;
+    }
+    const path = parsed.pathname.toLowerCase();
+    return JUNK_FRAME_PATHS.some(
+        (rule) => hostHasSuffix(host, rule.host) && path.startsWith(rule.path)
+    );
+}
+
+/**
+ * Count whitespace-delimited words in a string.
+ *
+ * This is the measure used to rank frames and to report a capture's word count.
+ * Word count, not character length, is what separates real content from a
+ * machine-generated blob: a base64 payload is enormous in bytes but is a single
+ * whitespace-free token, so it scores near zero here.
+ * @param {string} text
+ * @returns {number}
+ */
+export function wordCount(text) {
+    if (!text) {
+        return 0;
+    }
+    return text.trim().split(/\s+/).filter(Boolean).length;
+}
+
+/**
+ * Choose the frame whose text is the page's main content.
+ *
+ * Junk frames (captcha, ads, analytics, consent, chat) are dropped by URL first,
+ * so their payloads cannot win. Among the rest, the frame with the most words
+ * wins, which lets an iframe-embedded article or job posting beat the shell that
+ * wraps it while starving any large blob that holds no prose. The top frame is
+ * always kept as a candidate and is the seed, so ties favour the tab's own URL
+ * and a page whose content is in its own top document still resolves.
+ * @param {Array<{frameId:number, result:Object}>} frames Injection results, each
+ *   with a truthy result carrying rawText and frameUrl.
+ * @param {{frameId:number, result:Object}} topFrame The frameId 0 result.
+ * @returns {{frameId:number, result:Object}} The chosen body frame.
+ */
+export function selectBodyFrame(frames, topFrame) {
+    const pool = frames.filter(
+        (f) => f === topFrame || !isJunkFrame(f.result && f.result.frameUrl)
+    );
+    return pool.reduce((best, f) => {
+        const words = wordCount(f.result && f.result.rawText);
+        const bestWords = wordCount(best.result && best.result.rawText);
+        return words > bestWords ? f : best;
+    }, topFrame);
+}
+
+// ---------------------------------------------------------------------------
 // Structured-data helpers
 // ---------------------------------------------------------------------------
 
