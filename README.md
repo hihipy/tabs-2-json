@@ -64,10 +64,11 @@ Every tab record always has:
 On success, present when the page provides them and the matching setting is on:
 
 - `canonical_url`, `site_name`, `description`, `language`, `author`, `published_at`: page metadata, each omitted when absent. Drawn from standard [meta tags](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/meta), [Open Graph](https://ogp.me/) properties, and the [canonical link](https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls).
+- `content_frame_url`: present only when the body text came from a cross-origin sub-frame rather than the tab's own page, such as an embedded applicant tracking system or document viewer. It is the URL of that frame, so a consumer can see the text is not from `url`. Absent on ordinary single-frame pages.
 - `headings`: array of `{ level, text }`, when Include Headings Outline is on.
 - `structured_data`: array of [JSON-LD](https://json-ld.org/) objects the page embedded, when Include Structured Data is on. Any string value that contains HTML markup is reduced to its text, so embedded markup and inline CSS do not leak into the output; values without markup are unchanged.
 - `text`: the cleaned visible text, when Include Page Text is on.
-- `word_count`: word count of `text`.
+- `word_count`: word count of `text`. Counted by whitespace, so languages written without spaces (Chinese, Japanese, Thai) read low; the `text` itself is unaffected.
 - `content_type`: set to `video` when the page is video-only, otherwise absent.
 
 Boolean flags are present only when true. Their absence means false:
@@ -84,6 +85,7 @@ On failure, the record has `id`, `title`, `url`, `captured_at`, `ok` set to `fal
 - Gate on `ok` before reading anything else.
 - Treat `low_signal` and a `content_type` of `video` as signals to distrust `text` and prefer `structured_data`.
 - `id` is the reliable join key. `url` is not unique once parameters are stripped.
+- When `content_frame_url` is present, the text came from an embedded frame, not from `url`.
 
 ### Example output
 
@@ -142,6 +144,8 @@ The extension reads each page in a way that does not depend on the site being mo
 3. **Structured data.** It parses every [JSON-LD](https://json-ld.org/) block on the page, whatever the [Schema.org](https://schema.org/) type, and reduces any string value that carries HTML markup to its text. Some sites embed large HTML fragments inside JSON-LD strings; this keeps that markup out of the output while leaving ordinary values untouched.
 4. **Metadata.** It reads standard [meta tags](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/meta), the [canonical URL](https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls), and the [document language](https://developer.mozilla.org/en-US/docs/Web/HTML/Global_attributes/lang).
 
+Some sites render the real content inside a cross-origin iframe, such as embedded applicant tracking systems or document viewers, leaving the top frame as a shell. To handle that, the extension injects into every frame it has access to, skips known junk frames (captcha, ad, analytics, consent, and chat widgets) by URL, and keeps the remaining frame with the most words. Ranking by words rather than characters keeps a machine-generated blob, like a reCAPTCHA widget's payload, from beating the real page. When the winning frame is not the tab's own page, its URL is reported as `content_frame_url`.
+
 The read runs through the [`chrome.scripting`](https://developer.chrome.com/docs/extensions/reference/api/scripting) API only on the tabs you select, and only when you trigger an export.
 
 ---
@@ -164,16 +168,18 @@ Settings save automatically and apply on the next export.
 
 There is no build step and the extension has no runtime dependencies; it runs the source directly. The popup and options pages share their pure logic through `src/lib/extract.js`, and the injected page extractor lives in `src/lib/extractor.js`.
 
-Tests come in two suites. The unit suite covers the shared pure logic and runs on [Node](https://nodejs.org/) with no dependencies:
+Tests come in four suites. The unit suite covers the shared pure logic and runs on [Node](https://nodejs.org/) with no dependencies:
 
     node test/unit.mjs
 
-The extractor suite runs the real injected extractor against fixture HTML under [jsdom](https://github.com/jsdom/jsdom), the one dev dependency, so it needs an install first:
+The other three run the real code against fixture HTML under [jsdom](https://github.com/jsdom/jsdom), the one dev dependency, so they need an install first:
 
     npm install
     npm test
 
-`npm test` runs both suites. jsdom is used only for tests; it is never shipped with the extension. Two coverage notes: the checks that need a DOM (`stripHtml` and the markup path of `sanitizeStructured`) are skipped in plain Node and run in a browser or under jsdom; and because jsdom has no `innerText`, the extractor suite approximates it with `textContent`, so it asserts structural behaviour (which content root is chosen, whether leading nav is peeled) rather than exact whitespace semantics.
+The extractor suite runs the injected page extractor and checks which content root it picks and whether leading nav is peeled. The pipeline suite feeds real extractor output from several frames into the frame picker, covering the cross-origin iframe and junk-frame cases. The holistic suite runs the whole flow, from rendered frames through the record assembly, and asserts the full output record. `npm test` runs all four.
+
+jsdom is used only for tests; it is never shipped with the extension. Two coverage notes. jsdom has no `innerText`, so the suites approximate it by reading `textContent` from a copy of the node with the non-rendered elements (`script`, `style`, `noscript`, `template`) removed, which matches the one property the extractor relies on but not the exact whitespace and visibility rules a browser applies; the tests assert structural behaviour rather than exact spacing. And the checks that reduce HTML with `DOMParser` (`stripHtml` and the markup path of `sanitizeStructured`) are skipped in the unit suite under plain Node and run under jsdom in the holistic suite.
 
 ---
 
