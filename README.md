@@ -40,6 +40,8 @@ To run the source directly instead:
 
 Open the popup, tick the tabs you want, and choose Download JSON or Copy to Clipboard. Readable tabs are selected by default. Browser internal pages and any domains you block are shown disabled and cannot be read. The gear opens Settings; the refresh button re-reads your open tabs.
 
+Download JSON saves to your downloads folder under a timestamped name and closes the popup so it is not covering the browser's download UI. To be asked for a name and folder each time, turn on "ask where to save each file before downloading" in your browser's download settings. Copy to Clipboard leaves the popup open.
+
 ---
 
 ## Output format
@@ -152,7 +154,7 @@ The read runs through the [`chrome.scripting`](https://developer.chrome.com/docs
 
 ## Settings
 
-The options page is built with the [`options_ui`](https://developer.chrome.com/docs/extensions/reference/api/action) pattern and stores preferences locally via the [`chrome.storage`](https://developer.chrome.com/docs/extensions/reference/api/storage) API.
+The options page is built with the [`options_ui`](https://developer.chrome.com/docs/extensions/reference/manifest) pattern and stores preferences locally via the [`chrome.storage`](https://developer.chrome.com/docs/extensions/reference/api/storage) API.
 
 - Content: include or exclude page text, [structured data](https://json-ld.org/), and the headings outline.
 - Video Pages: trim text on video-only pages to a short snippet.
@@ -166,7 +168,7 @@ Settings save automatically and apply on the next export.
 
 ## Development
 
-There is no build step and the extension has no runtime dependencies; it runs the source directly. The popup and options pages share their pure logic through `src/lib/extract.js`, and the injected page extractor lives in `src/lib/extractor.js`.
+There is no build step and the extension has no runtime dependencies; it runs the source directly. The popup and options pages share their pure logic through `src/lib/extract.js`, and the injected page extractor lives in `src/lib/extractor.js`. Downloads are run by the service worker in `src/background.js`, which parks the generated file in the offscreen document at `src/offscreen.html` and `src/offscreen.js` so the save outlives the popup that started it.
 
 Tests come in five suites. The unit suite covers the shared pure logic and runs on [Node](https://nodejs.org/) with no dependencies:
 
@@ -194,7 +196,7 @@ jsdom is used only for tests; it is never shipped with the extension. Two covera
 
 ## Privacy
 
-All work happens locally in the browser. The extension makes no network requests and includes no analytics or tracking. See [`PRIVACY.md`](PRIVACY.md) for detail.
+All work happens locally in the browser. The extension sends none of your data anywhere and includes no analytics or tracking. The only network activity it causes is your browser fetching tab favicons for the popup list, exactly as the tab strip does. See [`PRIVACY.md`](PRIVACY.md) for detail.
 
 ---
 
@@ -207,6 +209,7 @@ Declared in [`manifest.json`](https://developer.chrome.com/docs/extensions/refer
 | [`tabs`](https://developer.chrome.com/docs/extensions/reference/api/tabs) | List open tabs and read their titles and URLs         |
 | [`scripting`](https://developer.chrome.com/docs/extensions/reference/api/scripting) | Read page content of the tabs you select              |
 | [`downloads`](https://developer.chrome.com/docs/extensions/reference/api/downloads) | Save the JSON file to your downloads folder           |
+| [`offscreen`](https://developer.chrome.com/docs/extensions/reference/api/offscreen) | Hold the generated file in memory while it downloads   |
 | [`storage`](https://developer.chrome.com/docs/extensions/reference/api/storage) | Remember your settings locally                        |
 | host access                                                  | Required so `scripting` can read the pages you choose |
 

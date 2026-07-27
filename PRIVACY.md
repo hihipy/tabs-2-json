@@ -13,7 +13,7 @@ When you select one or more tabs and choose to export, the extension reads the f
 - [Structured data](https://json-ld.org/) (JSON-LD) that the page itself embeds
 - The heading outline of the page
 
-The extension only reads a tab when you explicitly select it and trigger an export. It does not read tabs in the background.
+The extension reads the content of a page only when you have selected that tab and triggered an export. It never reads page content in the background. Opening the popup does read the title and URL of your open tabs, which is what the list you pick from is made of.
 
 ---
 
@@ -21,12 +21,24 @@ The extension only reads a tab when you explicitly select it and trigger an expo
 
 All processing happens locally on your device, inside your browser. The extracted content is written to a JSON file that you download, or copied to your [clipboard](https://developer.mozilla.org/en-US/docs/Web/API/Clipboard_API), at your request.
 
+While a download is in progress the file is held in memory by a hidden [offscreen document](https://developer.chrome.com/docs/extensions/reference/api/offscreen), which exists only so the save can finish after the popup closes. It is discarded as soon as the file is written.
+
 The extension does not:
 
-- Send your data to any server
-- Contact any external service or network endpoint
-- Include analytics, tracking, or telemetry of any kind
-- Store the content of your tabs
+- Send the content of your tabs, or any other information about you, to any server
+- Contact any analytics, telemetry, or tracking service
+- Include advertising of any kind
+- Keep a copy of your tabs' content once the export is finished
+
+One clarification about network activity. The popup shows each tab's favicon, which your browser fetches from that site the same way the tab strip does. That request carries nothing about you beyond the fact that a favicon was requested, and it is the only network activity the extension causes. Nothing the extension reads from your pages is ever transmitted.
+
+---
+
+## The file you download
+
+The export contains the full visible text of every tab you selected, so treat the file as being as sensitive as those pages. If you export a page you are signed in to, that page's content is in the file, in plain text, wherever you saved it.
+
+The file saves to your downloads folder under a timestamped name based on your local clock. To be asked for a name and folder each time instead, turn on "ask where to save each file before downloading" in your browser's download settings.
 
 ---
 
@@ -43,6 +55,7 @@ Each permission requested in [`manifest.json`](https://developer.chrome.com/docs
 - [`tabs`](https://developer.chrome.com/docs/extensions/reference/api/tabs): to list your open tabs and read their titles and URLs so you can choose which to export
 - [`scripting`](https://developer.chrome.com/docs/extensions/reference/api/scripting): to read the page content of the tabs you select
 - [`downloads`](https://developer.chrome.com/docs/extensions/reference/api/downloads): to save the JSON file to your downloads folder
+- [`offscreen`](https://developer.chrome.com/docs/extensions/reference/api/offscreen): to hold the generated file in memory while it downloads, so closing the popup does not cancel the save
 - [`storage`](https://developer.chrome.com/docs/extensions/reference/api/storage): to remember your settings locally
 - host access: required so the scripting permission can read content from the pages you choose
 
@@ -50,7 +63,7 @@ Each permission requested in [`manifest.json`](https://developer.chrome.com/docs
 
 ## Restricted and blocked pages
 
-The extension cannot read browser internal pages (for example `chrome://` or `brave://` pages) or the [Chrome Web Store](https://chromewebstore.google.com/). You can also add your own list of blocked domains in the settings, which the extension will never read.
+The extension cannot read browser internal pages (for example `chrome://` or `brave://` pages), `file://` pages, or the [Chrome Web Store](https://chromewebstore.google.com/). You can also add your own list of blocked domains in the settings, which the extension will never read.
 
 ---
 
