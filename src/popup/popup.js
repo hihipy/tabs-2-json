@@ -19,7 +19,8 @@ import {
     readWithFallback,
     captureAll,
     failureNote,
-    guardConcurrent
+    guardConcurrent,
+    shouldCloseAfterDownload
 } from "../lib/extract.js";
 
 // ---------------------------------------------------------------------------
@@ -393,34 +394,48 @@ function setStatus(message, isError) {
 }
 
 /**
- * Deliver a built export as a downloaded file. Saves straight to the browser's
- * downloads folder under the timestamped name, with no Save As dialog: forcing
- * the dialog can hang in some browsers (a blocked prompt queues repeat downloads)
- * and the timestamped name means the file rarely needs renaming anyway.
+ * Deliver a built export as a downloaded file. Nothing about the download is owned
+ * here. The popup hands the JSON to the background service worker, which parks it
+ * in an offscreen document as a Blob and starts the download from there, so the
+ * file's bytes and the download itself both outlive this popup.
+ *
+ * The worker acknowledges as soon as the blob is ready and before it opens the
+ * Save As dialog, which is what lets the popup get out of the way first: by the
+ * time the dialog appears, the popup is gone and no longer covers it or the
+ * browser's download button. An acknowledgement that reports a failure leaves the
+ * popup open so the error is readable.
  */
 async function deliverDownload({ json, count, failed, timedOut }) {
-    setStatus("Saving...");
-    const blob = new Blob([json], { type: "application/json" });
-    const url = URL.createObjectURL(blob);
-    try {
-        await chrome.downloads.download({
-            url: url,
-            filename: timestampName(),
-            saveAs: false
-        });
-    } finally {
-        // Release the object URL once the download has had time to start, whether
-        // or not it succeeded, so a failed or cancelled save does not leak it.
-        setTimeout(() => URL.revokeObjectURL(url), 10000);
-    }
+    setStatus("Preparing the file...");
     const noun = count === 1 ? "tab" : "tabs";
+
+    const response = await chrome.runtime.sendMessage({
+        target: "background",
+        type: "download",
+        json: json,
+        filename: timestampName()
+    });
+
+    if (!response || !response.ok) {
+        throw new Error(
+            (response && response.error) || "The download could not be started."
+        );
+    }
+
+    // On a fully clean export, close now so the Save As dialog is unobstructed. On
+    // a partial failure, stay open so the note is readable; the dialog still fires.
+    if (shouldCloseAfterDownload(count, failed)) {
+        window.close();
+        return;
+    }
+
     setStatus(
-        "Downloaded " + count + " " + noun + "." + failureNote(failed, timedOut),
+        "Saving " + count + " " + noun + "." + failureNote(failed, timedOut),
         count > 0 && failed === count
     );
 }
 
-/** Deliver a built export to the clipboard. */
+/** Deliver a built export to the clipboard. Leaves the popup open. */
 async function deliverCopy({ json, count, failed, timedOut }) {
     setStatus("Copying...");
     await navigator.clipboard.writeText(json);

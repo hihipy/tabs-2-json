@@ -498,6 +498,19 @@ export function guardConcurrent(task) {
 }
 
 /**
+ * Whether the popup should close itself after a download. Closes only on a fully
+ * clean save (at least one tab written, nothing failed), so that when a tab
+ * failed or timed out the popup stays open and its note remains readable. Copy
+ * never closes: a download is a "done" action, a copy often is not.
+ * @param {number} count Tabs written.
+ * @param {number} failed Tabs that failed (timeouts included).
+ * @returns {boolean}
+ */
+export function shouldCloseAfterDownload(count, failed) {
+    return count > 0 && failed === 0;
+}
+
+/**
  * Recursively collect every schema.org @type found in a JSON-LD node,
  * descending into arrays and @graph containers.
  * @param {*} node
@@ -639,13 +652,26 @@ export function sanitizeStructured(node) {
 }
 
 /**
- * Build the timestamped download filename, for example
- * "tabs2json-2026-07-16T05-06-39.json".
+ * Build the timestamped download filename from local system time, for example
+ * "tabs2json-2026-07-16T01-06-39.json". Local rather than UTC so the name matches
+ * the clock the file was saved by, which is what makes a folder of exports sortable
+ * and recognisable at a glance. The timestamps inside the file stay UTC, where an
+ * unambiguous instant matters more than a familiar one.
  * @returns {string}
  */
 export function timestampName() {
-    const iso = new Date().toISOString().slice(0, 19).replace(/:/g, "-");
-    return "tabs2json-" + iso + ".json";
+    const now = new Date();
+    const pad = (value) => String(value).padStart(2, "0");
+
+    const stamp =
+        now.getFullYear() +
+        "-" + pad(now.getMonth() + 1) +
+        "-" + pad(now.getDate()) +
+        "T" + pad(now.getHours()) +
+        "-" + pad(now.getMinutes()) +
+        "-" + pad(now.getSeconds());
+
+    return "tabs2json-" + stamp + ".json";
 }
 
 // ---------------------------------------------------------------------------

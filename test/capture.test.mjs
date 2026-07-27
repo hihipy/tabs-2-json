@@ -19,7 +19,8 @@ import {
     readWithFallback,
     captureAll,
     failureNote,
-    guardConcurrent
+    guardConcurrent,
+    shouldCloseAfterDownload
 } from "../src/lib/extract.js";
 
 /** A promise that never settles, for exercising timeout paths. */
@@ -220,4 +221,21 @@ test("guardConcurrent forwards arguments and the return value", async () => {
     const guarded = guardConcurrent(async (a, b) => a + b);
     const result = await guarded(2, 3);
     assert.equal(result, 5);
+});
+
+// ---------------------------------------------------------------------------
+// shouldCloseAfterDownload
+
+test("shouldCloseAfterDownload closes on a fully clean download", () => {
+    assert.equal(shouldCloseAfterDownload(3, 0), true);
+    assert.equal(shouldCloseAfterDownload(1, 0), true);
+});
+
+test("shouldCloseAfterDownload stays open when a tab failed", () => {
+    assert.equal(shouldCloseAfterDownload(3, 1), false);
+    assert.equal(shouldCloseAfterDownload(2, 2), false);
+});
+
+test("shouldCloseAfterDownload stays open when nothing was written", () => {
+    assert.equal(shouldCloseAfterDownload(0, 0), false);
 });
