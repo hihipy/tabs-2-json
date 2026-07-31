@@ -13,13 +13,13 @@
 
 **Turn your open tabs into clean JSON.**
 
-`Tabs2JSON` is a browser extension that reads the text and metadata of the tabs you select and exports it as structured [JSON](https://www.json.org/), built for feeding page content to a large language model. It works across page types by relying on how [HTML](https://developer.mozilla.org/en-US/docs/Web/HTML) organizes content rather than assuming any particular site structure.
+Tabs2JSON is a browser extension that reads the text and metadata of the tabs you select and exports it as structured [JSON](https://www.json.org/), built for feeding page content to a large language model. It works across page types by relying on how [HTML](https://developer.mozilla.org/en-US/docs/Web/HTML) organizes content rather than assuming any particular site structure.
 
 ---
 
 ## Why this exists
 
-Copying a job description, an article, or a set of research pages into an LLM one tab at a time is slow, and pasted browser text arrives cluttered with navigation and footer boilerplate. `Tabs2JSON` grabs the readable content from every tab you pick in one click, strips most of the chrome, preserves any [Schema.org](https://schema.org/) structured data the page already ships, and hands you a single JSON document an LLM can consume end to end.
+Copying a job description, an article, or a set of research pages into an LLM one tab at a time is slow, and pasted browser text arrives cluttered with navigation and footer boilerplate. Tabs2JSON grabs the readable content from every tab you pick in one click, strips most of the chrome, preserves any [Schema.org](https://schema.org/) structured data the page already ships, and hands you a single JSON document an LLM can consume end to end.
 
 ---
 
