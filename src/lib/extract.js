@@ -29,8 +29,26 @@ export const DEFAULT_SETTINGS = {
     maxTextChars: 0, // 0 means no limit
     stripUrlParams: false,
     blockedDomains: [],
-    prettyJson: true
+    prettyJson: true,
+    defaultSelection: "window",
+    hideUnreadable: false
 };
+
+/** Accepted values for the defaultSelection setting. */
+export const SELECTION_SCOPES = ["window", "all", "none"];
+
+/**
+ * Coerce a stored defaultSelection value to one the popup can act on.
+ *
+ * Storage is writable by anything with the extension's key, and a value carried
+ * over from a future or hand-edited settings object must not leave the list in a
+ * state with no window expanded. Anything unrecognised falls back to the default.
+ * @param {*} value
+ * @returns {string} One of SELECTION_SCOPES.
+ */
+export function normalizeSelectionScope(value) {
+    return SELECTION_SCOPES.includes(value) ? value : "window";
+}
 
 /** Schema.org types that indicate a page carries real article-style prose. */
 export const ARTICLE_TYPES = [
@@ -672,6 +690,119 @@ export function timestampName() {
         "-" + pad(now.getSeconds());
 
     return "tabs2json-" + stamp + ".json";
+}
+
+// ---------------------------------------------------------------------------
+// Window and group sections
+// ---------------------------------------------------------------------------
+
+/** The group id the browser reports for a tab that belongs to no group. */
+export const TAB_GROUP_ID_NONE = -1;
+
+/**
+ * Name an untitled tab group by its color, matching how the browser's own tab
+ * strip identifies a group the user never named.
+ * @param {string} color A chrome.tabGroups color name.
+ * @returns {string}
+ */
+function colorGroupLabel(color) {
+    const name = color || "grey";
+    return name.charAt(0).toUpperCase() + name.slice(1) + " group";
+}
+
+/**
+ * Arrange a flat tab list into one section per window, with tab groups nested
+ * inside the window that holds them.
+ *
+ * A group belongs to exactly one window, so nesting it there matches the
+ * browser's own model and avoids presenting groups as a second, competing way to
+ * slice the same tabs. Within a window, tabs keep the order the query returned,
+ * which is tab-strip order, and a group takes the position of its first tab so a
+ * group does not jump to the top of a window it sits partway down.
+ *
+ * The current window sorts first and is labelled by relation rather than by
+ * number, because the popup opens inside that window and "this window" is how
+ * the user already thinks of it. Window and group ids are unique only within a
+ * browser session, so nothing here may be persisted across restarts.
+ *
+ * Pure: it reads no browser API and returns plain data, so the arrangement is
+ * testable without a browser.
+ *
+ * @param {Array<Object>} tabs Tabs as returned by chrome.tabs.query.
+ * @param {Array<Object>} groups Groups as returned by chrome.tabGroups.query, or
+ *   an empty array when the API is unavailable.
+ * @param {number} currentWindowId The window the popup was opened from.
+ * @returns {Array<Object>} One section per window, each carrying an ordered items
+ *   array of group and tab entries.
+ */
+export function buildTabSections(tabs, groups, currentWindowId) {
+    const groupsById = new Map();
+    (groups || []).forEach((group) => {
+        if (group && typeof group.id === "number") {
+            groupsById.set(group.id, group);
+        }
+    });
+
+    const queryOrder = [];
+    const tabsByWindow = new Map();
+
+    (tabs || []).forEach((tab) => {
+        if (!tab || typeof tab.windowId !== "number") {
+            return;
+        }
+        if (!tabsByWindow.has(tab.windowId)) {
+            tabsByWindow.set(tab.windowId, []);
+            queryOrder.push(tab.windowId);
+        }
+        tabsByWindow.get(tab.windowId).push(tab);
+    });
+
+    // The current window first, every other window in the order the query gave.
+    const windowIds = queryOrder
+        .filter((id) => id === currentWindowId)
+        .concat(queryOrder.filter((id) => id !== currentWindowId));
+
+    return windowIds.map((windowId, index) => {
+        const windowTabs = tabsByWindow.get(windowId) || [];
+        const items = [];
+        const groupItems = new Map();
+
+        windowTabs.forEach((tab) => {
+            const groupId =
+                typeof tab.groupId === "number" ? tab.groupId : TAB_GROUP_ID_NONE;
+
+            if (groupId === TAB_GROUP_ID_NONE) {
+                items.push({ kind: "tab", tab: tab });
+                return;
+            }
+
+            let item = groupItems.get(groupId);
+            if (!item) {
+                const meta = groupsById.get(groupId);
+                const color = (meta && meta.color) || "grey";
+                item = {
+                    kind: "group",
+                    groupId: groupId,
+                    title: (meta && meta.title) || colorGroupLabel(color),
+                    color: color,
+                    tabs: []
+                };
+                groupItems.set(groupId, item);
+                items.push(item);
+            }
+            item.tabs.push(tab);
+        });
+
+        const activeTab = windowTabs.find((tab) => tab.active);
+
+        return {
+            windowId: windowId,
+            isCurrent: windowId === currentWindowId,
+            label: windowId === currentWindowId ? "This window" : "Window " + (index + 1),
+            activeTitle: activeTab ? activeTab.title || "" : "",
+            items: items
+        };
+    });
 }
 
 // ---------------------------------------------------------------------------

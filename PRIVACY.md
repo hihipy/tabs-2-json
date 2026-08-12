@@ -13,6 +13,8 @@ When you select one or more tabs and choose to export, the extension reads the f
 - [Structured data](https://json-ld.org/) (JSON-LD) that the page itself embeds
 - The heading outline of the page
 
+To build the list you pick from, the extension also reads which window each tab is in and which tab group it belongs to, along with that group's name and color. This is used only to arrange the list on screen. None of it is written to the exported file.
+
 The extension reads the content of a page only when you have selected that tab and triggered an export. It never reads page content in the background. Opening the popup does read the title and URL of your open tabs, which is what the list you pick from is made of.
 
 ---
@@ -53,6 +55,7 @@ Your preferences (theme and export settings) are stored locally using the [`chro
 Each permission requested in [`manifest.json`](https://developer.chrome.com/docs/extensions/reference/manifest) is used only for the purpose listed:
 
 - [`tabs`](https://developer.chrome.com/docs/extensions/reference/api/tabs): to list your open tabs and read their titles and URLs so you can choose which to export
+- [`tabGroups`](https://developer.chrome.com/docs/extensions/reference/api/tabGroups): to read the name and color of your tab groups, so the list can show your tabs grouped the way your browser does
 - [`scripting`](https://developer.chrome.com/docs/extensions/reference/api/scripting): to read the page content of the tabs you select
 - [`downloads`](https://developer.chrome.com/docs/extensions/reference/api/downloads): to save the JSON file to your downloads folder
 - [`offscreen`](https://developer.chrome.com/docs/extensions/reference/api/offscreen): to hold the generated file in memory while it downloads, so closing the popup does not cancel the save

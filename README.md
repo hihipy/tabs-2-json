@@ -6,20 +6,20 @@
 **Built with**
 
 [![Chrome](https://img.shields.io/badge/Chrome-4285F4?style=flat&logo=googlechrome&logoColor=white)](https://developer.chrome.com/docs/extensions)
-[![CSS3](https://img.shields.io/badge/CSS3-663399?style=flat&logo=css&logoColor=white)](https://developer.mozilla.org/en-US/docs/Web/CSS)
+[![CSS3](https://img.shields.io/badge/CSS3-1572B6?style=flat&logo=css&logoColor=white)](https://developer.mozilla.org/en-US/docs/Web/CSS)
 [![HTML5](https://img.shields.io/badge/HTML5-E34F26?style=flat&logo=html5&logoColor=white)](https://developer.mozilla.org/en-US/docs/Web/HTML)
 [![JavaScript](https://img.shields.io/badge/JavaScript-F7DF1E?style=flat&logo=javascript&logoColor=black)](https://developer.mozilla.org/en-US/docs/Web/JavaScript)
 [![JSON](https://img.shields.io/badge/JSON-000000?style=flat&logo=json&logoColor=white)](https://www.json.org/)
 
 **Turn your open tabs into clean JSON.**
 
-Tabs2JSON is a browser extension that reads the text and metadata of the tabs you select and exports it as structured [JSON](https://www.json.org/), built for feeding page content to a large language model. It works across page types by relying on how [HTML](https://developer.mozilla.org/en-US/docs/Web/HTML) organizes content rather than assuming any particular site structure.
+`Tabs2JSON` is a browser extension that reads the text and metadata of the tabs you select and exports it as structured [JSON](https://www.json.org/), built for feeding page content to a large language model. It works across page types by relying on how [HTML](https://developer.mozilla.org/en-US/docs/Web/HTML) organizes content rather than assuming any particular site structure.
 
 ---
 
 ## Why this exists
 
-Copying a job description, an article, or a set of research pages into an LLM one tab at a time is slow, and pasted browser text arrives cluttered with navigation and footer boilerplate. Tabs2JSON grabs the readable content from every tab you pick in one click, strips most of the chrome, preserves any [Schema.org](https://schema.org/) structured data the page already ships, and hands you a single JSON document an LLM can consume end to end.
+Copying a job description, an article, or a set of research pages into an LLM one tab at a time is slow, and pasted browser text arrives cluttered with navigation and footer boilerplate. `Tabs2JSON` grabs the readable content from every tab you pick in one click, strips most of the chrome, preserves any [Schema.org](https://schema.org/) structured data the page already ships, and hands you a single JSON document an LLM can consume end to end.
 
 ---
 
@@ -39,6 +39,8 @@ To run the source directly instead:
 ## Use
 
 Open the popup, tick the tabs you want, and choose Download JSON or Copy to Clipboard. Readable tabs are selected by default. Browser internal pages and any domains you block are shown disabled and cannot be read. The gear opens Settings; the refresh button re-reads your open tabs.
+
+With more than one window open, tabs are listed under a header per window, and any tab groups appear nested inside their window with the group's own name and color. A header's checkbox selects every readable tab beneath it, so you can take a whole window or a whole group in one click. The window you opened the popup from is listed first as This window and starts expanded; the others start collapsed, labelled by number and by their active tab. With a single window open the headers are omitted.
 
 Download JSON saves to your downloads folder under a timestamped name and closes the popup so it is not covering the browser's download UI. To be asked for a name and folder each time, turn on "ask where to save each file before downloading" in your browser's download settings. Copy to Clipboard leaves the popup open.
 
@@ -170,16 +172,16 @@ Settings save automatically and apply on the next export.
 
 There is no build step and the extension has no runtime dependencies; it runs the source directly. The popup and options pages share their pure logic through `src/lib/extract.js`, and the injected page extractor lives in `src/lib/extractor.js`. Downloads are run by the service worker in `src/background.js`, which parks the generated file in the offscreen document at `src/offscreen.html` and `src/offscreen.js` so the save outlives the popup that started it.
 
-Tests come in five suites. The unit suite covers the shared pure logic and runs on [Node](https://nodejs.org/) with no dependencies:
+Tests come in six suites. The unit and sections suites cover the shared pure logic and run on [Node](https://nodejs.org/) with no dependencies:
 
-    node test/unit.mjs
+    node --test test/unit.mjs test/sections.test.mjs
 
-The other three run the real code against fixture HTML under [jsdom](https://github.com/jsdom/jsdom), the one dev dependency, so they need an install first:
+The other four run the real code against fixture HTML under [jsdom](https://github.com/jsdom/jsdom), the one dev dependency, so they need an install first:
 
     npm install
     npm test
 
-The extractor suite runs the injected page extractor and checks which content root it picks and whether leading nav is peeled. The pipeline suite feeds real extractor output from several frames into the frame picker, covering the cross-origin iframe and junk-frame cases. The holistic suite runs the whole flow, from rendered frames through the record assembly, and asserts the full output record. The capture suite covers the orchestration the popup wires to the browser: the per-tab timeout, the slow-sub-frame fallback to the top frame, the progress count, the failure summary, and the guard that runs one export at a time so a slow save dialog cannot queue duplicate downloads. All five use Node's built-in [`node:test`](https://nodejs.org/api/test.html) runner, so `npm test` runs them in one pass, aggregates the results, and prints a full diff on any failure.
+The sections suite covers the pure arrangement of tabs into window and group sections that the popup list renders. The extractor suite runs the injected page extractor and checks which content root it picks and whether leading nav is peeled. The pipeline suite feeds real extractor output from several frames into the frame picker, covering the cross-origin iframe and junk-frame cases. The holistic suite runs the whole flow, from rendered frames through the record assembly, and asserts the full output record. The capture suite covers the orchestration the popup wires to the browser: the per-tab timeout, the slow-sub-frame fallback to the top frame, the progress count, the failure summary, and the guard that runs one export at a time so a slow save dialog cannot queue duplicate downloads. All six use Node's built-in [`node:test`](https://nodejs.org/api/test.html) runner, so `npm test` runs them in one pass, aggregates the results, and prints a full diff on any failure.
 
 jsdom is used only for tests; it is never shipped with the extension. Two coverage notes. jsdom has no `innerText`, so the suites approximate it by keeping only rendered, visible text: they drop the non-rendered elements (`script`, `style`, `noscript`, `template`) and any node hidden with `display:none`, `visibility:hidden`, or the `hidden` attribute. They do not drop `aria-hidden`, which changes the accessibility tree but not rendering, so a real browser's `innerText` still returns that text. jsdom has no layout engine, so it resolves visibility from inline styles and simple stylesheet rules but not from anything geometric (off-screen positioning, zero-size clipping), and it does not reproduce innerText's block-boundary whitespace; the suites assert structural behaviour rather than exact spacing, and a real-browser export stays the backstop for layout-dependent visibility. And the checks that reduce HTML with `DOMParser` (`stripHtml` and the markup path of `sanitizeStructured`) run whenever a `DOMParser` is available: under `npm test` the unit suite loads one from jsdom, and the holistic suite exercises the same path end to end. They skip only when `unit.mjs` is run on its own without jsdom installed, which keeps that command dependency-free.
 
@@ -207,6 +209,7 @@ Declared in [`manifest.json`](https://developer.chrome.com/docs/extensions/refer
 | Permission                                                   | Why                                                   |
 | ------------------------------------------------------------ | ----------------------------------------------------- |
 | [`tabs`](https://developer.chrome.com/docs/extensions/reference/api/tabs) | List open tabs and read their titles and URLs         |
+| [`tabGroups`](https://developer.chrome.com/docs/extensions/reference/api/tabGroups) | Read tab group names and colors for the popup list      |
 | [`scripting`](https://developer.chrome.com/docs/extensions/reference/api/scripting) | Read page content of the tabs you select              |
 | [`downloads`](https://developer.chrome.com/docs/extensions/reference/api/downloads) | Save the JSON file to your downloads folder           |
 | [`offscreen`](https://developer.chrome.com/docs/extensions/reference/api/offscreen) | Hold the generated file in memory while it downloads   |

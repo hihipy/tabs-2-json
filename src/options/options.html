@@ -13,6 +13,28 @@
     <p class="version" id="version"></p>
   </header>
 
+  <section class="group" aria-labelledby="list-heading">
+    <h2 id="list-heading">Tab List</h2>
+    <label class="row row-inline" for="default-selection">
+        <span>
+          <span class="row-title">Selected By Default</span>
+          <span class="row-note">Which tabs are already ticked when the popup opens. Windows that start with nothing selected also start collapsed.</span>
+        </span>
+      <select id="default-selection">
+        <option value="window">This window only</option>
+        <option value="all">All windows</option>
+        <option value="none">Nothing</option>
+      </select>
+    </label>
+    <label class="row">
+      <input type="checkbox" id="hide-unreadable">
+      <span>
+          <span class="row-title">Hide Tabs That Cannot Be Read</span>
+          <span class="row-note">Leaves out browser pages and blocked domains instead of showing them greyed out.</span>
+        </span>
+    </label>
+  </section>
+
   <section class="group" aria-labelledby="content-heading">
     <h2 id="content-heading">Content</h2>
     <label class="row">

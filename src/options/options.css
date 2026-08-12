@@ -149,6 +149,18 @@ body {
   font-size: 14px;
 }
 
+.row-inline select {
+  width: 160px;
+  padding: 7px 9px;
+  color: var(--text);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 14px;
+  cursor: pointer;
+}
+
 .row-block {
   cursor: default;
 }

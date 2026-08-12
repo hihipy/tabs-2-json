@@ -20,7 +20,9 @@ import {
     captureAll,
     failureNote,
     guardConcurrent,
-    shouldCloseAfterDownload
+    shouldCloseAfterDownload,
+    buildTabSections,
+    normalizeSelectionScope
 } from "../lib/extract.js";
 
 // ---------------------------------------------------------------------------
@@ -71,6 +73,27 @@ let settings = { ...DEFAULT_SETTINGS };
 
 /** The most recent tab list, retained so the UI can re-render on changes. */
 let allTabs = [];
+
+/** The most recent tab groups, retained for the same reason. */
+let allGroups = [];
+
+/** The window the popup was opened from, so its section can sort and label first. */
+let currentWindowId = null;
+
+/**
+ * The window whose tabs open expanded and start selected. Normally the window the
+ * popup was opened from. Null when the list is a single window, where the
+ * distinction does not arise.
+ */
+let defaultWindowId = null;
+
+/**
+ * Window ids the user has collapsed, or expanded against the default. Held so a
+ * re-render (a settings change, a refresh) does not throw away what the user
+ * opened. Ids are session-scoped, which is fine for a popup that does not outlive
+ * the session.
+ */
+const collapseOverrides = new Map();
 
 // ---------------------------------------------------------------------------
 // Settings
@@ -166,26 +189,66 @@ function captureBlockReason(tab) {
 }
 
 /**
- * Return the enabled tab checkboxes currently in the list.
+ * Return the enabled tab checkboxes currently in the list. Header checkboxes are
+ * excluded: only a row carrying data-tab-id stands for a tab that can be read.
  * @returns {HTMLInputElement[]}
  */
 function checkboxes() {
     return Array.from(
-        tabListEl.querySelectorAll("input[type=checkbox]:not(:disabled)")
+        tabListEl.querySelectorAll("input[type=checkbox][data-tab-id]:not(:disabled)")
     );
 }
 
 /**
- * Refresh the selection count, the Select All state, and the enabled state of
- * the action buttons.
+ * Set a header checkbox from the tab checkboxes it governs, and write its count.
+ * A header with some but not all of its tabs selected shows the browser's
+ * indeterminate dash, which distinguishes a partial window from an empty one at a
+ * glance.
+ * @param {HTMLInputElement} header
+ * @param {HTMLInputElement[]} members Enabled tab checkboxes under this header.
+ */
+function syncHeader(header, members) {
+    const selected = members.filter((box) => box.checked).length;
+
+    header.checked = members.length > 0 && selected === members.length;
+    header.indeterminate = selected > 0 && selected < members.length;
+    header.disabled = members.length === 0;
+
+    const countLabel = header.closest("li").querySelector(".section-count");
+    if (countLabel) {
+        countLabel.textContent =
+            members.length === 0 ? "None readable" : selected + " of " + members.length;
+    }
+}
+
+/**
+ * Return the enabled tab checkboxes governed by a header.
+ * @param {HTMLInputElement} header
+ * @returns {HTMLInputElement[]}
+ */
+function membersOf(header) {
+    const boxes = checkboxes();
+    if (header.dataset.group) {
+        return boxes.filter((box) => box.dataset.group === header.dataset.group);
+    }
+    return boxes.filter((box) => box.dataset.window === header.dataset.window);
+}
+
+/**
+ * Refresh the selection count, every header state, and the enabled state of the
+ * action buttons.
  */
 function updateCount() {
     const boxes = checkboxes();
     const selected = boxes.filter((b) => b.checked).length;
     countEl.textContent = selected + " of " + boxes.length + " selected";
 
-    selectAllEl.checked = selected > 0 && selected === boxes.length;
+    selectAllEl.checked = boxes.length > 0 && selected === boxes.length;
     selectAllEl.indeterminate = selected > 0 && selected < boxes.length;
+
+    tabListEl
+        .querySelectorAll("input[type=checkbox][data-scope]")
+        .forEach((header) => syncHeader(header, membersOf(header)));
 
     const none = selected === 0;
     downloadBtn.disabled = none;
@@ -193,61 +256,314 @@ function updateCount() {
 }
 
 /**
- * Render the tab list. Capturable tabs are checked by default; restricted and
- * blocked tabs are shown disabled with an explanatory tag.
+ * Whether a window section should render collapsed. The default window opens
+ * expanded because it is the one the user is looking at; the others start
+ * collapsed so several open windows do not reproduce the flat list this structure
+ * exists to break up. An explicit toggle always wins over the default.
+ * @param {Object} section
+ * @returns {boolean}
+ */
+function isCollapsed(section) {
+    if (collapseOverrides.has(section.windowId)) {
+        return collapseOverrides.get(section.windowId);
+    }
+    // Selecting everything means the user wants to see everything, so nothing
+    // starts hidden.
+    if (normalizeSelectionScope(settings.defaultSelection) === "all") {
+        return false;
+    }
+    return section.windowId !== defaultWindowId;
+}
+
+/**
+ * Choose the window that opens expanded and starts selected.
+ *
+ * Expansion and selection are answered by this one function so they cannot
+ * disagree. If they did, a collapsed window's tabs could be selected, and a plain
+ * Download would export pages the user never saw in the list.
+ *
+ * Normally this is the window the popup was opened from. When that could not be
+ * identified, the first section stands in, so some window is always expanded and
+ * the popup never opens with nothing selected.
+ * @param {Array<Object>} sections
+ * @returns {(number|null)}
+ */
+function resolveDefaultWindow(sections) {
+    if (sections.length === 0) {
+        return null;
+    }
+    const match = sections.some((section) => section.windowId === currentWindowId);
+    return match ? currentWindowId : sections[0].windowId;
+}
+
+/**
+ * Show or hide the rows belonging to one window, and point its chevron.
+ *
+ * Hiding uses a class rather than the hidden attribute. The attribute is styled
+ * display:none by the browser's default stylesheet, which a class selector on the
+ * row overrides, so a flex row stays visible with hidden set on it.
+ * @param {number} windowId
+ * @param {boolean} collapsed
+ */
+function applyCollapse(windowId, collapsed) {
+    const key = String(windowId);
+
+    tabListEl.querySelectorAll('[data-window="' + key + '"]').forEach((el) => {
+        if (el.classList.contains("window-row")) {
+            return;
+        }
+        el.classList.toggle("collapsed-member", collapsed);
+    });
+
+    const header = tabListEl.querySelector('.window-row[data-window="' + key + '"]');
+    if (header) {
+        const toggle = header.querySelector(".section-toggle");
+        toggle.setAttribute("aria-expanded", String(!collapsed));
+        toggle.querySelector(".chevron").textContent = collapsed ? "\u25B8" : "\u25BE";
+    }
+}
+
+/**
+ * Build one tab row.
+ * @param {chrome.tabs.Tab} tab
+ * @param {number} windowId
+ * @param {(Object|null)} group The group item the row sits in, or null when the
+ *   tab belongs to no group.
+ * @param {boolean} selectByDefault Whether the row starts checked, assuming the
+ *   tab can be read at all.
+ * @returns {HTMLLIElement}
+ */
+function tabRow(tab, windowId, group, selectByDefault) {
+    const reason = captureBlockReason(tab);
+    const capturable = reason === null;
+
+    const row = document.createElement("li");
+    row.className = "tab-row" + (capturable ? "" : " restricted");
+    row.dataset.window = String(windowId);
+    if (group) {
+        row.dataset.group = String(group.groupId);
+        row.dataset.color = group.color;
+        row.classList.add("in-group");
+    }
+
+    const checkbox = document.createElement("input");
+    checkbox.type = "checkbox";
+    checkbox.checked = capturable && selectByDefault;
+    checkbox.disabled = !capturable;
+    checkbox.dataset.tabId = String(tab.id);
+    checkbox.dataset.window = String(windowId);
+    if (group) {
+        checkbox.dataset.group = String(group.groupId);
+    }
+    checkbox.addEventListener("change", updateCount);
+
+    const favicon = document.createElement("img");
+    favicon.className = "tab-favicon";
+    favicon.alt = "";
+    if (tab.favIconUrl) {
+        favicon.src = tab.favIconUrl;
+    }
+
+    const textWrap = document.createElement("span");
+    textWrap.className = "tab-text";
+
+    const title = document.createElement("div");
+    title.className = "tab-title";
+    title.textContent = tab.title || tab.url || "Untitled tab";
+
+    const sub = document.createElement("div");
+    if (capturable) {
+        sub.className = "tab-url";
+        sub.textContent = tab.url;
+    } else {
+        sub.className = "tab-tag";
+        sub.textContent =
+            reason === "blocked"
+                ? "Blocked by your settings"
+                : "Restricted page, cannot read";
+    }
+
+    textWrap.append(title, sub);
+
+    const label = document.createElement("label");
+    label.style.display = "contents";
+    label.append(checkbox, favicon, textWrap);
+    row.append(label);
+    return row;
+}
+
+/**
+ * Build a header checkbox that selects or clears everything beneath it.
+ * @param {string} scope Either "window" or "group".
+ * @param {string} key The window or group id, as a string.
+ * @param {string} ariaLabel
+ * @returns {HTMLInputElement}
+ */
+function headerCheckbox(scope, key, ariaLabel) {
+    const box = document.createElement("input");
+    box.type = "checkbox";
+    box.dataset.scope = scope;
+    box.dataset[scope] = key;
+    box.setAttribute("aria-label", ariaLabel);
+
+    box.addEventListener("change", () => {
+        // A header the user clicks while it shows the dash selects everything,
+        // which is the reading that saves work: a partial selection is on its way
+        // to being whole more often than on its way to being empty.
+        const target = box.checked;
+        membersOf(box).forEach((member) => {
+            member.checked = target;
+        });
+        updateCount();
+    });
+
+    return box;
+}
+
+/**
+ * Build a window header row: a checkbox that selects the whole window, and a
+ * button that collapses it.
+ * @param {Object} section
+ * @returns {HTMLLIElement}
+ */
+function windowRow(section) {
+    const row = document.createElement("li");
+    row.className = "window-row";
+    row.dataset.window = String(section.windowId);
+
+    const box = headerCheckbox(
+        "window",
+        String(section.windowId),
+        "Select every readable tab in " + section.label
+    );
+
+    const toggle = document.createElement("button");
+    toggle.type = "button";
+    toggle.className = "section-toggle";
+
+    const chevron = document.createElement("span");
+    chevron.className = "chevron";
+    chevron.setAttribute("aria-hidden", "true");
+
+    const label = document.createElement("span");
+    label.className = "section-label";
+    label.textContent = section.label;
+
+    const count = document.createElement("span");
+    count.className = "section-count";
+
+    toggle.append(chevron, label, count);
+
+    toggle.addEventListener("click", () => {
+        const next = !isCollapsed(section);
+        collapseOverrides.set(section.windowId, next);
+        applyCollapse(section.windowId, next);
+    });
+
+    // The active tab's title identifies a window the user cannot see, which a
+    // number alone does not.
+    if (!section.isCurrent && section.activeTitle) {
+        const hint = document.createElement("span");
+        hint.className = "section-hint";
+        hint.textContent = section.activeTitle;
+        toggle.append(hint);
+    }
+
+    row.append(box, toggle);
+    return row;
+}
+
+/**
+ * Build a group header row.
+ * @param {Object} item A group item from buildTabSections.
+ * @param {number} windowId
+ * @returns {HTMLLIElement}
+ */
+function groupRow(item, windowId) {
+    const row = document.createElement("li");
+    row.className = "group-row";
+    row.dataset.window = String(windowId);
+    row.dataset.group = String(item.groupId);
+    row.dataset.color = item.color;
+
+    const box = headerCheckbox(
+        "group",
+        String(item.groupId),
+        "Select every readable tab in the " + item.title + " group"
+    );
+
+    const label = document.createElement("span");
+    label.className = "section-label group-label";
+    label.textContent = item.title;
+
+    const count = document.createElement("span");
+    count.className = "section-count";
+
+    const label_el = document.createElement("label");
+    label_el.style.display = "contents";
+    label_el.append(box, label);
+
+    row.append(label_el, count);
+    return row;
+}
+
+/**
+ * Render the tab list as one section per window, with groups nested inside their
+ * window. Capturable tabs are checked by default; restricted and blocked tabs are
+ * shown disabled with an explanatory tag. A window whose tabs are all unreadable
+ * still renders, with a disabled header, because a silently missing window is
+ * harder to understand than a visibly unusable one.
  * @param {chrome.tabs.Tab[]} tabs
  */
 function renderTabs(tabs) {
     tabListEl.innerHTML = "";
 
-    tabs.forEach((tab) => {
-        const reason = captureBlockReason(tab);
-        const capturable = reason === null;
+    const scope = normalizeSelectionScope(settings.defaultSelection);
 
-        const row = document.createElement("li");
-        row.className = "tab-row" + (capturable ? "" : " restricted");
+    // Dropping unreadable tabs here rather than at render time also drops any
+    // window left with nothing in it, since buildTabSections only makes a section
+    // for a window that has tabs.
+    const listed = settings.hideUnreadable
+        ? tabs.filter((tab) => captureBlockReason(tab) === null)
+        : tabs;
 
-        const checkbox = document.createElement("input");
-        checkbox.type = "checkbox";
-        checkbox.checked = capturable;
-        checkbox.disabled = !capturable;
-        checkbox.dataset.tabId = String(tab.id);
-        checkbox.addEventListener("change", updateCount);
+    const sections = buildTabSections(listed, allGroups, currentWindowId);
 
-        const favicon = document.createElement("img");
-        favicon.className = "tab-favicon";
-        favicon.alt = "";
-        if (tab.favIconUrl) {
-            favicon.src = tab.favIconUrl;
+    // With one window there is nothing to distinguish, so the headers would only
+    // add a row the user has to look past.
+    const flat = sections.length < 2;
+
+    defaultWindowId = flat ? null : resolveDefaultWindow(sections);
+
+    sections.forEach((section) => {
+        // What is selected stays limited to what the user can see, so a plain
+        // Download never picks up a tab from a collapsed window.
+        const selectByDefault =
+            scope === "none"
+                ? false
+                : scope === "all" || flat || section.windowId === defaultWindowId;
+
+        if (!flat) {
+            tabListEl.append(windowRow(section));
         }
 
-        const textWrap = document.createElement("span");
-        textWrap.className = "tab-text";
-
-        const title = document.createElement("div");
-        title.className = "tab-title";
-        title.textContent = tab.title || tab.url || "Untitled tab";
-
-        const sub = document.createElement("div");
-        if (capturable) {
-            sub.className = "tab-url";
-            sub.textContent = tab.url;
-        } else {
-            sub.className = "tab-tag";
-            sub.textContent =
-                reason === "blocked"
-                    ? "Blocked by your settings"
-                    : "Restricted page, cannot read";
-        }
-
-        textWrap.append(title, sub);
-
-        const label = document.createElement("label");
-        label.style.display = "contents";
-        label.append(checkbox, favicon, textWrap);
-        row.append(label);
-        tabListEl.append(row);
+        section.items.forEach((item) => {
+            if (item.kind === "group") {
+                tabListEl.append(groupRow(item, section.windowId));
+                item.tabs.forEach((tab) => {
+                    tabListEl.append(tabRow(tab, section.windowId, item, selectByDefault));
+                });
+                return;
+            }
+            tabListEl.append(tabRow(item.tab, section.windowId, null, selectByDefault));
+        });
     });
+
+    if (!flat) {
+        sections.forEach((section) => {
+            applyCollapse(section.windowId, isCollapsed(section));
+        });
+    }
 
     updateCount();
 }
@@ -481,15 +797,94 @@ settingsBtn.addEventListener("click", () => {
 });
 
 /**
- * Query all open tabs, retain them, and render the list.
+ * Identify the browser window the user was looking at when they opened the popup.
+ *
+ * chrome.windows.getCurrent can report the popup's own window rather than the
+ * browser window behind it, and that id holds none of the queried tabs. So the
+ * active tab of the last focused window is asked first, and every candidate is
+ * checked against the windows that actually have tabs. Returning null is a valid
+ * answer: the list then numbers every window instead of naming one "this window".
+ * @param {chrome.tabs.Tab[]} tabs
+ * @returns {Promise<(number|null)>}
+ */
+async function findCurrentWindowId(tabs) {
+    const withTabs = new Set(tabs.map((tab) => tab.windowId));
+
+    try {
+        const active = await chrome.tabs.query({
+            active: true,
+            lastFocusedWindow: true
+        });
+        const tab = active && active[0];
+        if (tab && withTabs.has(tab.windowId)) {
+            return tab.windowId;
+        }
+    } catch (err) {
+        // Fall through to the window lookup below.
+    }
+
+    try {
+        const win = await chrome.windows.getCurrent();
+        if (win && withTabs.has(win.id)) {
+            return win.id;
+        }
+    } catch (err) {
+        // Fall through.
+    }
+
+    return null;
+}
+
+/**
+ * Read the open tab groups. Returns an empty list when the browser has no
+ * tabGroups API, which leaves every tab ungrouped rather than failing the load:
+ * grouping is presentation, and the export works without it.
+ * @returns {Promise<Array<Object>>}
+ */
+async function loadGroups() {
+    if (!chrome.tabGroups || !chrome.tabGroups.query) {
+        return [];
+    }
+    try {
+        return await chrome.tabGroups.query({});
+    } catch (err) {
+        return [];
+    }
+}
+
+/**
+ * Query all open tabs and groups, retain them, and render the list. The window
+ * lookup and the group query run alongside the tab query, since none depends on
+ * another.
  * @returns {Promise<void>}
  */
 async function loadTabs() {
     try {
-        allTabs = await chrome.tabs.query({});
+        const [tabs, groups] = await Promise.all([
+            chrome.tabs.query({}),
+            loadGroups()
+        ]);
+
+        allTabs = tabs;
+        allGroups = groups;
+        currentWindowId = await findCurrentWindowId(tabs);
+
         renderTabs(allTabs);
+
         const anyCapturable = allTabs.some((tab) => captureBlockReason(tab) === null);
-        setStatus(anyCapturable ? "" : "No readable tabs are open.");
+        const anySelected = checkboxes().some((box) => box.checked);
+
+        if (!anyCapturable) {
+            setStatus("No readable tabs are open.");
+        } else if (!anySelected && normalizeSelectionScope(settings.defaultSelection) !== "none") {
+            // Readable tabs exist, but not in the window that opened expanded, so
+            // both buttons are disabled. Say why rather than leaving a dead end.
+            // Silent when the user chose to start with nothing selected, since an
+            // empty selection is then the setting working.
+            setStatus("Nothing readable in this window. Expand another to select tabs.");
+        } else {
+            setStatus("");
+        }
     } catch (err) {
         setStatus(
             "Could not load tabs: " + (err && err.message ? err.message : err),
@@ -504,7 +899,15 @@ chrome.storage.onChanged.addListener((changes, area) => {
         return;
     }
     if (changes[SETTINGS_KEY]) {
+        const previousScope = normalizeSelectionScope(settings.defaultSelection);
         settings = { ...DEFAULT_SETTINGS, ...(changes[SETTINGS_KEY].newValue || {}) };
+
+        // A new selection scope carries a new idea of what should be open, so the
+        // toggles the user made under the old one no longer apply. Other settings
+        // leave them alone.
+        if (normalizeSelectionScope(settings.defaultSelection) !== previousScope) {
+            collapseOverrides.clear();
+        }
         renderTabs(allTabs);
     }
     if (changes[THEME_KEY]) {

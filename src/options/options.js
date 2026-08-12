@@ -5,11 +5,19 @@
  * keeps the page theme in sync with the user's preference.
  */
 
-import { SETTINGS_KEY, DEFAULT_SETTINGS, clampInt, parseDomains } from "../lib/extract.js";
+import {
+  SETTINGS_KEY,
+  DEFAULT_SETTINGS,
+  clampInt,
+  parseDomains,
+  normalizeSelectionScope
+} from "../lib/extract.js";
 
 const THEME_KEY = "theme";
 
 const el = {
+  defaultSelection: document.getElementById("default-selection"),
+  hideUnreadable: document.getElementById("hide-unreadable"),
   includeText: document.getElementById("include-text"),
   includeStructured: document.getElementById("include-structured"),
   includeHeadings: document.getElementById("include-headings"),
@@ -60,6 +68,8 @@ async function loadForm() {
   const stored = await chrome.storage.local.get(SETTINGS_KEY);
   const settings = { ...DEFAULT_SETTINGS, ...(stored[SETTINGS_KEY] || {}) };
 
+  el.defaultSelection.value = normalizeSelectionScope(settings.defaultSelection);
+  el.hideUnreadable.checked = settings.hideUnreadable;
   el.includeText.checked = settings.includeText;
   el.includeStructured.checked = settings.includeStructuredData;
   el.includeHeadings.checked = settings.includeHeadings;
@@ -76,6 +86,8 @@ async function loadForm() {
  */
 function readForm() {
   return {
+    defaultSelection: normalizeSelectionScope(el.defaultSelection.value),
+    hideUnreadable: el.hideUnreadable.checked,
     includeText: el.includeText.checked,
     includeStructuredData: el.includeStructured.checked,
     includeHeadings: el.includeHeadings.checked,
@@ -107,6 +119,8 @@ async function save() {
 
 // Save whenever any control changes.
 [
+  el.defaultSelection,
+  el.hideUnreadable,
   el.includeText,
   el.includeStructured,
   el.includeHeadings,

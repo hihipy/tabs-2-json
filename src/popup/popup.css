@@ -25,6 +25,15 @@
   --accent-text: #ffffff;
   --focus: #c8442a;
   --error: #b3261e;
+  --group-grey: #5f6368;
+  --group-blue: #1a56c4;
+  --group-red: #b3261e;
+  --group-yellow: #8a6100;
+  --group-green: #1a6b3c;
+  --group-pink: #a01f5c;
+  --group-purple: #6b3fa0;
+  --group-cyan: #0a6b73;
+  --group-orange: #9a4a00;
 }
 
 /* Dark tokens, applied for explicit dark and for auto before JS resolves. */
@@ -39,6 +48,15 @@
   --accent-text: #10151b;
   --focus: #ff9a7a;
   --error: #ff8a80;
+  --group-grey: #a9b2bd;
+  --group-blue: #6ba3ff;
+  --group-red: #ff8a80;
+  --group-yellow: #e8c060;
+  --group-green: #6fd39a;
+  --group-pink: #f58bb8;
+  --group-purple: #b79cf0;
+  --group-cyan: #5fc9d1;
+  --group-orange: #f0a464;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -53,6 +71,15 @@
     --accent-text: #10151b;
     --focus: #ff9a7a;
     --error: #ff8a80;
+  --group-grey: #a9b2bd;
+  --group-blue: #6ba3ff;
+  --group-red: #ff8a80;
+  --group-yellow: #e8c060;
+  --group-green: #6fd39a;
+  --group-pink: #f58bb8;
+  --group-purple: #b79cf0;
+  --group-cyan: #5fc9d1;
+  --group-orange: #f0a464;
   }
 }
 
@@ -175,7 +202,7 @@ body {
   list-style: none;
   margin: 0;
   padding: 0;
-  max-height: 320px;
+  max-height: 340px;
   overflow-y: auto;
 }
 
@@ -283,6 +310,130 @@ body {
 
 .status.error::before {
   content: "⚠ ";
+}
+
+/* Window and group section headers.
+
+   A header carries the same checkbox the tab rows use, at a wider scope, so the
+   control needs no new explanation. The window header's label is a button rather
+   than a link because it changes state in place and navigates nowhere. */
+
+.window-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 4px 6px;
+  border-top: 1px solid var(--border);
+}
+
+.tab-list > .window-row:first-child {
+  border-top: none;
+  padding-top: 4px;
+}
+
+.section-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+  padding: 2px 4px;
+  color: var(--text);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 14px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.section-toggle:hover {
+  background: var(--surface-hover);
+}
+
+.chevron {
+  display: inline-block;
+  width: 10px;
+  flex-shrink: 0;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.section-label {
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+.section-count {
+  font-size: 12px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+/* The active tab's title, for a window the user cannot currently see. It yields
+   space first, since it is the least important thing on the row. */
+.section-hint {
+  min-width: 0;
+  font-size: 11.5px;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* A group takes its own color as a left rule, matching how the tab strip marks
+   the same group. Squared off, because a single-sided border with rounded corners
+   renders as a clipped arc. */
+.group-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: 12px;
+  padding: 5px 4px 5px 8px;
+  border-left-width: 3px;
+  border-left-style: solid;
+  border-left-color: var(--group-color, var(--group-grey));
+  border-radius: 0;
+}
+
+.group-label {
+  font-size: 13px;
+  color: var(--group-color, var(--group-grey));
+}
+
+.tab-row.in-group {
+  margin-left: 12px;
+  padding-left: 11px;
+  border-left-width: 3px;
+  border-left-style: solid;
+  border-left-color: var(--group-color, var(--group-grey));
+  border-radius: 0;
+}
+
+.group-row[data-color="grey"], .tab-row.in-group[data-color="grey"] { --group-color: var(--group-grey); }
+.group-row[data-color="blue"], .tab-row.in-group[data-color="blue"] { --group-color: var(--group-blue); }
+.group-row[data-color="red"], .tab-row.in-group[data-color="red"] { --group-color: var(--group-red); }
+.group-row[data-color="yellow"], .tab-row.in-group[data-color="yellow"] { --group-color: var(--group-yellow); }
+.group-row[data-color="green"], .tab-row.in-group[data-color="green"] { --group-color: var(--group-green); }
+.group-row[data-color="pink"], .tab-row.in-group[data-color="pink"] { --group-color: var(--group-pink); }
+.group-row[data-color="purple"], .tab-row.in-group[data-color="purple"] { --group-color: var(--group-purple); }
+.group-row[data-color="cyan"], .tab-row.in-group[data-color="cyan"] { --group-color: var(--group-cyan); }
+.group-row[data-color="orange"], .tab-row.in-group[data-color="orange"] { --group-color: var(--group-orange); }
+
+/* A row inside a collapsed window. This needs to out-specify the display:flex on
+   .tab-row and .group-row, which is why it is a class and not the hidden
+   attribute: the browser styles [hidden] display:none at a specificity a class
+   selector on the row beats. */
+.tab-row.collapsed-member,
+.group-row.collapsed-member {
+  display: none;
+}
+
+.window-row input[type="checkbox"]:disabled,
+.group-row input[type="checkbox"]:disabled {
+  opacity: 0.5;
+  cursor: default;
 }
 
 input[type="checkbox"] {
