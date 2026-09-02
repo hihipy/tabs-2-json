@@ -388,9 +388,106 @@ function tabRow(tab, windowId, group, selectByDefault) {
     const label = document.createElement("label");
     label.style.display = "contents";
     label.append(checkbox, favicon, textWrap);
-    row.append(label);
+
+    // Outside the label, so a click here closes the tab and does not also toggle
+    // the row's checkbox. Offered on restricted rows too: a browser page cannot be
+    // read, but clearing it out of the way is exactly what it is good for.
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "tab-close";
+    close.dataset.tabId = String(tab.id);
+    close.title = "Close tab";
+    close.setAttribute(
+        "aria-label",
+        "Close tab: " + (tab.title || tab.url || "untitled")
+    );
+    close.textContent = "\u00D7";
+    close.addEventListener("click", () => closeTab(tab));
+
+    row.append(label, close);
     return row;
 }
+
+/**
+ * Drop the row for one tab, and any header left governing nothing.
+ *
+ * The list is edited in place rather than re-rendered, because a re-render would
+ * reapply the default selection and throw away whatever the user had ticked. A
+ * group or window header with no rows left under it is removed too, since an
+ * empty section is a control that can no longer do anything.
+ * @param {number} tabId
+ */
+function removeTabRow(tabId) {
+    const key = String(tabId);
+    const row = tabListEl.querySelector('.tab-row > .tab-close[data-tab-id="' + key + '"]');
+    if (!row || !row.parentElement) {
+        return;
+    }
+
+    const li = row.parentElement;
+    const groupKey = li.dataset.group;
+    const windowKey = li.dataset.window;
+    li.remove();
+
+    if (groupKey) {
+        const left = tabListEl.querySelectorAll(
+            '.tab-row[data-group="' + groupKey + '"]'
+        );
+        if (left.length === 0) {
+            const header = tabListEl.querySelector(
+                '.group-row[data-group="' + groupKey + '"]'
+            );
+            if (header) {
+                header.remove();
+            }
+        }
+    }
+
+    if (windowKey) {
+        const left = tabListEl.querySelectorAll(
+            '.tab-row[data-window="' + windowKey + '"]'
+        );
+        if (left.length === 0) {
+            const header = tabListEl.querySelector(
+                '.window-row[data-window="' + windowKey + '"]'
+            );
+            if (header) {
+                header.remove();
+            }
+        }
+    }
+
+    allTabs = allTabs.filter((tab) => tab.id !== tabId);
+    updateCount();
+}
+
+/**
+ * Close a browser tab and take its row out of the list.
+ *
+ * There is no undo here, and adding one would mean asking for the sessions
+ * permission for a button most users will press rarely. The browser already has
+ * the shortcut, so the status line points at it instead.
+ * @param {chrome.tabs.Tab} tab
+ * @returns {Promise<void>}
+ */
+async function closeTab(tab) {
+    try {
+        await chrome.tabs.remove(tab.id);
+        removeTabRow(tab.id);
+        setStatus("Closed that tab. Cmd+Shift+T in the browser reopens it.");
+    } catch (err) {
+        // The tab was already gone, or the browser refused. Re-read rather than
+        // leaving a row that points at nothing.
+        setStatus("Could not close that tab.", true);
+        await loadTabs();
+    }
+}
+
+// A tab closed anywhere else while the popup is open leaves a row that points at
+// nothing, and exporting it would fail. Drop the row instead.
+chrome.tabs.onRemoved.addListener((tabId) => {
+    removeTabRow(tabId);
+});
 
 /**
  * Build a header checkbox that selects or clears everything beneath it.

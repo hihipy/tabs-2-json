@@ -219,8 +219,16 @@ body {
   background: var(--surface-hover);
 }
 
+/* Dim what cannot be used, not the whole row. Opacity on the row would apply to
+   its whole subtree, including the close button, which still works here and must
+   not look otherwise. A child cannot undo a parent's opacity. */
 .tab-row.restricted {
   cursor: default;
+}
+
+.tab-row.restricted input[type="checkbox"],
+.tab-row.restricted .tab-favicon,
+.tab-row.restricted .tab-text {
   opacity: 0.6;
 }
 
@@ -420,6 +428,29 @@ body {
 .group-row[data-color="purple"], .tab-row.in-group[data-color="purple"] { --group-color: var(--group-purple); }
 .group-row[data-color="cyan"], .tab-row.in-group[data-color="cyan"] { --group-color: var(--group-cyan); }
 .group-row[data-color="orange"], .tab-row.in-group[data-color="orange"] { --group-color: var(--group-orange); }
+
+/* The per-row close button. Always visible rather than revealed on hover, so it
+   is reachable by keyboard and touch and discoverable without hunting. Muted
+   until hovered so a list of them does not read as a column of warnings. */
+.tab-close {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  color: var(--text-muted);
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 16px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.tab-close:hover {
+  color: var(--error);
+  background: var(--surface-hover);
+}
 
 /* A row inside a collapsed window. This needs to out-specify the display:flex on
    .tab-row and .group-row, which is why it is a class and not the hidden
