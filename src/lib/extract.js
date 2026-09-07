@@ -281,7 +281,41 @@ export function wordCount(text) {
  * @param {{frameId:number, result:Object}} topFrame The frameId 0 result.
  * @returns {{frameId:number, result:Object}} The chosen body frame.
  */
+/**
+ * Words a frame must carry, on top of clearing the low-signal floor, before it
+ * counts as a page in its own right.
+ *
+ * The low-signal floor is 200 characters, which a header and a nav bar can clear
+ * without the page saying anything. This is the second bar: roughly a short
+ * paragraph. Any real article or posting is far above it, and any shell that
+ * exists only to host an embed is far below.
+ */
+export const OWN_CONTENT_MIN_WORDS = 120;
+
+/**
+ * Whether a frame is a page in its own right rather than a host for an embed.
+ * @param {Object} result A pageExtractor result.
+ * @returns {boolean}
+ */
+export function hasOwnContent(result) {
+    if (!result || result.lowSignal) {
+        return false;
+    }
+    return wordCount(result.rawText) >= OWN_CONTENT_MIN_WORDS;
+}
+
 export function selectBodyFrame(frames, topFrame) {
+    // The tab's own page wins outright when it carries real content, whatever a
+    // sub-frame holds. Ranking every frame by word count cannot tell a job
+    // description from the application form embedded beside it, because the form
+    // legitimately has more words: an EEO survey, a veteran-status explanation,
+    // and a disability questionnaire run longer than the posting they attach to.
+    // Word count only decides which frame is the page when the page itself has
+    // nothing to say.
+    if (hasOwnContent(topFrame && topFrame.result)) {
+        return topFrame;
+    }
+
     const pool = frames.filter(
         (f) => f === topFrame || !isJunkFrame(f.result && f.result.frameUrl)
     );
@@ -349,11 +383,20 @@ export function buildRecord(tab, frames, settings, capturedAt) {
         textTruncated = true;
     }
 
+    // The tab title is what the browser shows on the tab strip. For a single-page
+    // careers site it is the router's title and is the same on every posting, so
+    // the page's own heading is preferred where the two disagree. The tab title is
+    // kept alongside whenever it was overridden, so nothing is discarded.
+    const tabTitle = tab.title || meta.documentTitle || body.documentTitle || "";
+    const heading = primaryHeading(body.headings);
+    const headingWins = preferPageHeading(tabTitle, heading);
+
     // Optional metadata prefers the top frame and falls back to the content
     // frame, which for an embedded page often carries the real values.
     const record = {
         id: tab.id,
-        title: tab.title || meta.documentTitle || body.documentTitle || "",
+        title: headingWins ? heading : tabTitle,
+        tab_title: headingWins ? tabTitle : null,
         url: outputUrl(tab.url || "", settings.stripUrlParams),
         canonical_url: outputUrl(meta.canonical || body.canonical, settings.stripUrlParams),
         site_name: meta.siteName || body.siteName,
@@ -690,6 +733,125 @@ export function timestampName() {
         "-" + pad(now.getSeconds());
 
     return "tabs2json-" + stamp + ".json";
+}
+
+// ---------------------------------------------------------------------------
+// Page title
+// ---------------------------------------------------------------------------
+
+/**
+ * The heading that names the page, or an empty string when there is not one.
+ *
+ * A page whose content root carries exactly one heading at its shallowest level
+ * is using that heading to say what it is about. Several headings at that level
+ * means they are section labels, and the shallowest one is only the first
+ * section, not the subject: an application form headed "Apply for this job",
+ * "Voluntary Self-Identification", and "Voluntary Self-Identification of
+ * Disability" is not a page about applying for this job.
+ * @param {Array<Object>} headings
+ * @returns {string}
+ */
+export function primaryHeading(headings) {
+    if (!Array.isArray(headings) || headings.length === 0) {
+        return "";
+    }
+
+    const levels = headings
+        .filter((h) => h && typeof h.level === "number")
+        .map((h) => h.level);
+    if (levels.length === 0) {
+        return "";
+    }
+
+    const shallowest = Math.min(...levels);
+    const atTop = headings.filter((h) => h && h.level === shallowest);
+
+    return atTop.length === 1 ? (atTop[0].text || "").trim() : "";
+}
+
+/**
+ * Headings that label a section rather than name a page.
+ *
+ * An applicant tracking system often heads the posting body with one of these and
+ * puts the job title in the document title instead, which inverts the situation
+ * this rule exists for. Falling back to the tab title is always safe here, so the
+ * list can be generous.
+ */
+const SECTION_LABEL_HEADINGS = new Set([
+    "description",
+    "job description",
+    "full job description",
+    "overview",
+    "job overview",
+    "summary",
+    "job summary",
+    "position summary",
+    "about",
+    "about us",
+    "about the role",
+    "about this role",
+    "the role",
+    "details",
+    "job details",
+    "responsibilities",
+    "requirements",
+    "qualifications",
+    "apply",
+    "apply now",
+    "apply for this job",
+    "careers",
+    "main content",
+    "content"
+]);
+
+/**
+ * Whether a heading labels a section instead of naming the page.
+ *
+ * Two tests. A known section label, and a heading of one word: a page that names
+ * itself almost always takes more than one word to do it, while "Description",
+ * "Overview", and "Careers" are the shape a section label takes. A one-word
+ * heading that genuinely is the page's subject usually appears inside the tab
+ * title as well, which the containment check already handles.
+ * @param {string} heading
+ * @returns {boolean}
+ */
+function isSectionLabel(heading) {
+    const text = (heading || "").replace(/\s+/g, " ").trim().toLowerCase();
+    if (!text) {
+        return true;
+    }
+    if (SECTION_LABEL_HEADINGS.has(text)) {
+        return true;
+    }
+    return text.split(" ").length < 2;
+}
+
+/**
+ * Whether the page's own heading names the page better than its tab title does.
+ *
+ * Single-page applications reuse one document title across every page they
+ * route to, so a folder of exports from one careers site reads the same on every
+ * record and identifies none of them. The heading is preferred only when the two
+ * describe different things. Where either contains the other, the tab title is
+ * already about the right subject and usually carries the site name too, so it
+ * stays.
+ * @param {string} tabTitle
+ * @param {string} heading
+ * @returns {boolean}
+ */
+export function preferPageHeading(tabTitle, heading) {
+    const flatten = (value) => (value || "").replace(/\s+/g, " ").trim().toLowerCase();
+
+    const title = flatten(tabTitle);
+    const head = flatten(heading);
+
+    if (!head || isSectionLabel(head)) {
+        return false;
+    }
+    if (!title) {
+        return true;
+    }
+    return !title.includes(head) && !head.includes(title);
 }
 
 // ---------------------------------------------------------------------------
