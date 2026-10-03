@@ -38,9 +38,9 @@ To run the source directly instead:
 
 ## Use
 
-Open the popup, tick the tabs you want, and choose Download JSON or Copy to Clipboard. Readable tabs are selected by default. Browser internal pages and any domains you block are shown disabled and cannot be read. The gear opens Settings; the refresh button re-reads your open tabs.
+Open the popup, tick the tabs you want, and choose Download JSON or Copy to Clipboard. Browser internal pages and any domains you block are shown disabled and cannot be read. Each row carries a close button that closes that browser tab, including the rows that cannot be read. The gear opens Settings; the refresh button re-reads your open tabs.
 
-With more than one window open, tabs are listed under a header per window, and any tab groups appear nested inside their window with the group's own name and color. A header's checkbox selects every readable tab beneath it, so you can take a whole window or a whole group in one click. The window you opened the popup from is listed first as This window and starts expanded; the others start collapsed, labelled by number and by their active tab. With a single window open the headers are omitted.
+With more than one window open, tabs are listed under a header per window, and any tab groups appear nested inside their window with the group's own name and color. A header's checkbox selects every readable tab beneath it, so you can take a whole window or a whole group in one click. The window you opened the popup from is listed first as This window, starts expanded, and has its readable tabs already selected; the others start collapsed and unselected, labelled by number and by their active tab, so an export never quietly picks up a tab you cannot see. With a single window open the headers are omitted and every readable tab starts selected.
 
 Download JSON saves to your downloads folder under a timestamped name and closes the popup so it is not covering the browser's download UI. To be asked for a name and folder each time, turn on "ask where to save each file before downloading" in your browser's download settings. Copy to Clipboard leaves the popup open.
 
@@ -61,12 +61,13 @@ Every tab record always has:
 - `id`: the browser tab id. Stable identifier for mapping results back to a tab, even when URL parameters are stripped.
 - `title`: the tab title.
 - `url`: the page URL. Query parameters are removed when Strip Query Parameters is on.
-- `content_source`: where the text came from, one of `main`, `article`, an element tag, `heuristic`, or `body`.
+- `content_source`: where the text came from, one of `main`, `article`, an element tag, `heuristic`, `body`, or `full-page` when Capture The Whole Page is on.
 - `captured_at`: [ISO 8601](https://www.iso.org/iso-8601-date-and-time-format.html) timestamp of the capture.
 - `ok`: `true` on success, `false` on capture failure.
 
 On success, present when the page provides them and the matching setting is on:
 
+- `tab_title`: present only when `title` came from the page's own heading rather than the browser tab title, and carries that tab title so nothing is lost. Single-page sites reuse one tab title across every page they route to, so the heading is preferred where the two describe different things. Absent on ordinary pages.
 - `canonical_url`, `site_name`, `description`, `language`, `author`, `published_at`: page metadata, each omitted when absent. Drawn from standard [meta tags](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/meta), [Open Graph](https://ogp.me/) properties, and the [canonical link](https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls).
 - `content_frame_url`: present only when the body text came from a cross-origin sub-frame rather than the tab's own page, such as an embedded applicant tracking system or document viewer. It is the URL of that frame, so a consumer can see the text is not from `url`. Absent on ordinary single-frame pages.
 - `headings`: array of `{ level, text }`, when Include Headings Outline is on.
@@ -143,12 +144,16 @@ The first record is a normal article capture. The second is a video-only page, f
 
 The extension reads each page in a way that does not depend on the site being modern or well-built.
 
-1. **Content root.** It looks for a semantic [`<main>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/main), then [`<article>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/article), then an element with [`role="main"`](https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Roles/main_role). If none exist, it scores content blocks by text length and link density to find the real content, and falls back to the [`<body>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/body) as a last resort. This keeps it working on older table-layout pages as well as current ones.
+1. **Content root.** It looks for a semantic [`<main>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/main), then [`<article>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/article), then an element with [`role="main"`](https://developer.mozilla.org/en-US/docs/Web/Accessibility/ARIA/Roles/main_role). If none exist, it scores content blocks by text length and link density to find the real content, and falls back to the [`<body>`](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/body) as a last resort. This keeps it working on older table-layout pages as well as current ones. Capture The Whole Page skips this step entirely and takes the `<body>`, for pages where the choice goes wrong.
 2. **Text.** It reads [`innerText`](https://developer.mozilla.org/en-US/docs/Web/API/HTMLElement/innerText) from the chosen root, so visible block structure survives. It then peels a leading navigation or aside block when that block's text is an exact prefix of the body, which removes in-page menu bars without touching prose, and normalizes whitespace.
 3. **Structured data.** It parses every [JSON-LD](https://json-ld.org/) block on the page, whatever the [Schema.org](https://schema.org/) type, and reduces any string value that carries HTML markup to its text. Some sites embed large HTML fragments inside JSON-LD strings; this keeps that markup out of the output while leaving ordinary values untouched.
 4. **Metadata.** It reads standard [meta tags](https://developer.mozilla.org/en-US/docs/Web/HTML/Element/meta), the [canonical URL](https://developers.google.com/search/docs/crawling-indexing/consolidate-duplicate-urls), and the [document language](https://developer.mozilla.org/en-US/docs/Web/HTML/Global_attributes/lang).
 
-Some sites render the real content inside a cross-origin iframe, such as embedded applicant tracking systems or document viewers, leaving the top frame as a shell. To handle that, the extension injects into every frame it has access to, skips known junk frames (captcha, ad, analytics, consent, and chat widgets) by URL, and keeps the remaining frame with the most words. Ranking by words rather than characters keeps a machine-generated blob, like a reCAPTCHA widget's payload, from beating the real page. When the winning frame is not the tab's own page, its URL is reported as `content_frame_url`.
+Some sites render the real content inside a cross-origin iframe, such as embedded applicant tracking systems or document viewers, leaving the top frame as a shell. To handle that, the extension injects into every frame it has access to and skips known junk frames (captcha, ad, analytics, consent, and chat widgets) by URL.
+
+The tab's own page then wins outright whenever it carries content of its own, meaning it clears the low-signal floor and holds at least 120 words. Only when the top frame is a shell does the extension rank the remaining frames and keep the one with the most words, ranking by words rather than characters so a machine-generated blob like a reCAPTCHA payload cannot beat a real page. Word count alone cannot separate a job description from the application form embedded beside it, because the form's equal-opportunity survey and disability questionnaire run longer than the posting; deferring to the chosen page first is what settles that. When the winning frame is not the tab's own page, its URL is reported as `content_frame_url`.
+
+Capture The Whole Page makes no frame choice at all. It stitches the text of every frame worth reading together, top frame first, and reports `content_source` as `full-page` with no `content_frame_url`.
 
 The read runs through the [`chrome.scripting`](https://developer.chrome.com/docs/extensions/reference/api/scripting) API only on the tabs you select, and only when you trigger an export.
 
@@ -158,7 +163,8 @@ The read runs through the [`chrome.scripting`](https://developer.chrome.com/docs
 
 The options page is built with the [`options_ui`](https://developer.chrome.com/docs/extensions/reference/manifest) pattern and stores preferences locally via the [`chrome.storage`](https://developer.chrome.com/docs/extensions/reference/api/storage) API.
 
-- Content: include or exclude page text, [structured data](https://json-ld.org/), and the headings outline.
+- Tab List: choose what a new popup starts with selected (this window, every window, or nothing), and whether tabs that cannot be read are hidden rather than shown greyed out.
+- Content: capture the whole page instead of picking out the main content, and include or exclude page text, [structured data](https://json-ld.org/), and the headings outline.
 - Video Pages: trim text on video-only pages to a short snippet.
 - Limits: cap the characters of text kept per tab.
 - Privacy: strip query parameters from URLs, and block domains the extension will never read.
@@ -172,16 +178,16 @@ Settings save automatically and apply on the next export.
 
 There is no build step and the extension has no runtime dependencies; it runs the source directly. The popup and options pages share their pure logic through `src/lib/extract.js`, and the injected page extractor lives in `src/lib/extractor.js`. Downloads are run by the service worker in `src/background.js`, which parks the generated file in the offscreen document at `src/offscreen.html` and `src/offscreen.js` so the save outlives the popup that started it.
 
-Tests come in six suites. The unit and sections suites cover the shared pure logic and run on [Node](https://nodejs.org/) with no dependencies:
+Tests come in nine suites. The unit, sections, and capture suites cover the shared pure logic and the capture orchestration, and run on [Node](https://nodejs.org/) with no dependencies:
 
-    node --test test/unit.mjs test/sections.test.mjs
+    node --test test/unit.mjs test/sections.test.mjs test/capture.test.mjs
 
-The other four run the real code against fixture HTML under [jsdom](https://github.com/jsdom/jsdom), the one dev dependency, so they need an install first:
+The other six run the real code against fixture HTML under [jsdom](https://github.com/jsdom/jsdom), the one dev dependency, so they need an install first:
 
     npm install
     npm test
 
-The sections suite covers the pure arrangement of tabs into window and group sections that the popup list renders. The extractor suite runs the injected page extractor and checks which content root it picks and whether leading nav is peeled. The pipeline suite feeds real extractor output from several frames into the frame picker, covering the cross-origin iframe and junk-frame cases. The holistic suite runs the whole flow, from rendered frames through the record assembly, and asserts the full output record. The capture suite covers the orchestration the popup wires to the browser: the per-tab timeout, the slow-sub-frame fallback to the top frame, the progress count, the failure summary, and the guard that runs one export at a time so a slow save dialog cannot queue duplicate downloads. All six use Node's built-in [`node:test`](https://nodejs.org/api/test.html) runner, so `npm test` runs them in one pass, aggregates the results, and prints a full diff on any failure.
+The sections suite covers the pure arrangement of tabs into window and group sections that the popup list renders. The capture suite covers the orchestration the popup wires to the browser: the per-tab timeout, the slow-sub-frame fallback to the top frame, the progress count, the failure summary, and the guard that runs one export at a time so a slow save dialog cannot queue duplicate downloads. The extractor suite runs the injected page extractor and checks which content root it picks and whether leading nav is peeled. The title suite covers when a page's own heading replaces the browser tab title, and the section labels an applicant tracking system uses that must not. The frames suite covers which frame becomes the body, including the case where an application form embedded beside a posting is longer than the posting itself. The fullpage suite covers whole-page capture: the stitching order across frames, junk exclusion, the character cap, and that the setting off leaves a record unchanged. The pipeline suite feeds real extractor output from several frames into the frame picker, covering the cross-origin iframe and junk-frame cases. The holistic suite runs the whole flow, from rendered frames through the record assembly, and asserts the full output record. All nine use Node's built-in [`node:test`](https://nodejs.org/api/test.html) runner, so `npm test` runs them in one pass, aggregates the results, and prints a full diff on any failure.
 
 jsdom is used only for tests; it is never shipped with the extension. Two coverage notes. jsdom has no `innerText`, so the suites approximate it by keeping only rendered, visible text: they drop the non-rendered elements (`script`, `style`, `noscript`, `template`) and any node hidden with `display:none`, `visibility:hidden`, or the `hidden` attribute. They do not drop `aria-hidden`, which changes the accessibility tree but not rendering, so a real browser's `innerText` still returns that text. jsdom has no layout engine, so it resolves visibility from inline styles and simple stylesheet rules but not from anything geometric (off-screen positioning, zero-size clipping), and it does not reproduce innerText's block-boundary whitespace; the suites assert structural behaviour rather than exact spacing, and a real-browser export stays the backstop for layout-dependent visibility. And the checks that reduce HTML with `DOMParser` (`stripHtml` and the markup path of `sanitizeStructured`) run whenever a `DOMParser` is available: under `npm test` the unit suite loads one from jsdom, and the holistic suite exercises the same path end to end. They skip only when `unit.mjs` is run on its own without jsdom installed, which keeps that command dependency-free.
 

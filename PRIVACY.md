@@ -23,6 +23,8 @@ The extension reads the content of a page only when you have selected that tab a
 
 All processing happens locally on your device, inside your browser. The extracted content is written to a JSON file that you download, or copied to your [clipboard](https://developer.mozilla.org/en-US/docs/Web/API/Clipboard_API), at your request.
 
+By default the extension reads the main content of a page and leaves out navigation and footers. A setting called "capture the whole page" reads every part of the page instead, for pages where that choice goes wrong. It reads nothing the default does not already have access to, but the exported file is larger and includes menus, sidebars, and footers.
+
 While a download is in progress the file is held in memory by a hidden [offscreen document](https://developer.chrome.com/docs/extensions/reference/api/offscreen), which exists only so the save can finish after the popup closes. It is discarded as soon as the file is written.
 
 The extension does not:
