@@ -22,7 +22,8 @@ import {
     guardConcurrent,
     shouldCloseAfterDownload,
     buildTabSections,
-    normalizeSelectionScope
+    normalizeSelectionScope,
+    LOW_SIGNAL_MIN_CHARS
 } from "../lib/extract.js";
 
 // ---------------------------------------------------------------------------
@@ -39,7 +40,6 @@ const THEME_KEY = "theme";
  * and deliberately does not try to judge full-but-noisy pages, which cannot be
  * detected reliably without site-specific logic.
  */
-const LOW_SIGNAL_MIN_CHARS = 200;
 
 /**
  * How long to wait for the all-frames read before falling back to the top frame.
@@ -694,7 +694,7 @@ function readFrames(tab) {
         chrome.scripting.executeScript({
             target,
             func: pageExtractor,
-            args: [LOW_SIGNAL_MIN_CHARS]
+            args: [LOW_SIGNAL_MIN_CHARS, Boolean(settings.captureFullPage)]
         });
 
     return readWithFallback(

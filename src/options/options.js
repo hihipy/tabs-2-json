@@ -18,6 +18,7 @@ const THEME_KEY = "theme";
 const el = {
   defaultSelection: document.getElementById("default-selection"),
   hideUnreadable: document.getElementById("hide-unreadable"),
+  captureFullPage: document.getElementById("capture-full-page"),
   includeText: document.getElementById("include-text"),
   includeStructured: document.getElementById("include-structured"),
   includeHeadings: document.getElementById("include-headings"),
@@ -70,6 +71,7 @@ async function loadForm() {
 
   el.defaultSelection.value = normalizeSelectionScope(settings.defaultSelection);
   el.hideUnreadable.checked = settings.hideUnreadable;
+  el.captureFullPage.checked = settings.captureFullPage;
   el.includeText.checked = settings.includeText;
   el.includeStructured.checked = settings.includeStructuredData;
   el.includeHeadings.checked = settings.includeHeadings;
@@ -88,6 +90,7 @@ function readForm() {
   return {
     defaultSelection: normalizeSelectionScope(el.defaultSelection.value),
     hideUnreadable: el.hideUnreadable.checked,
+    captureFullPage: el.captureFullPage.checked,
     includeText: el.includeText.checked,
     includeStructuredData: el.includeStructured.checked,
     includeHeadings: el.includeHeadings.checked,
@@ -121,6 +124,7 @@ async function save() {
 [
   el.defaultSelection,
   el.hideUnreadable,
+  el.captureFullPage,
   el.includeText,
   el.includeStructured,
   el.includeHeadings,

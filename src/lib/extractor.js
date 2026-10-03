@@ -15,9 +15,13 @@
  * rather than reproducing them exactly.
  *
  * @param {number} lowSignalMinChars Below this text length, mark low signal.
+ * @param {boolean} fullPage When true, take the whole body rather than choosing a
+ *   content root, and leave leading navigation in place. The content-root choice
+ *   is a judgement about what the page is for, and on a page it judges wrongly
+ *   there is otherwise no way to get the text out.
  * @returns {Object}
  */
-export function pageExtractor(lowSignalMinChars) {
+export function pageExtractor(lowSignalMinChars, fullPage) {
     const attr = (selector, name) => {
         const el = document.querySelector(selector);
         return el ? el.getAttribute(name) : null;
@@ -61,11 +65,19 @@ export function pageExtractor(lowSignalMinChars) {
     // Choose the content root: semantic tags first, then a density heuristic for
     // pages with no semantic structure, then the body as a last resort. This
     // keeps extraction working across both modern and older HTML.
-    let root =
-        document.querySelector("main") ||
-        document.querySelector("article") ||
-        document.querySelector('[role="main"]');
-    let source = root ? root.tagName.toLowerCase() : null;
+    let root = null;
+    let source = null;
+
+    if (fullPage) {
+        root = document.body;
+        source = "full-page";
+    } else {
+        root =
+            document.querySelector("main") ||
+            document.querySelector("article") ||
+            document.querySelector('[role="main"]');
+        source = root ? root.tagName.toLowerCase() : null;
+    }
 
     if (!root) {
         const bodyLength = document.body
@@ -162,7 +174,7 @@ export function pageExtractor(lowSignalMinChars) {
         .filter((t) => t.length >= 8)
         .sort((a, b) => b.length - a.length);
 
-    let peeled = true;
+    let peeled = !fullPage;
     while (peeled) {
         peeled = false;
         const normBody = normalize(rootText);

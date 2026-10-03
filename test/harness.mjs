@@ -83,7 +83,7 @@ function innerTextApprox(el) {
  * @param {number} [minChars] Low-signal floor to pass to the extractor.
  * @returns {Object} The pageExtractor result.
  */
-export function extract(html, url, minChars = LOW_SIGNAL_MIN_CHARS) {
+export function extract(html, url, minChars = LOW_SIGNAL_MIN_CHARS, fullPage = false) {
     const dom = new JSDOM(html, url ? { url } : undefined);
     Object.defineProperty(dom.window.HTMLElement.prototype, "innerText", {
         get() {
@@ -94,7 +94,7 @@ export function extract(html, url, minChars = LOW_SIGNAL_MIN_CHARS) {
     const previous = global.document;
     global.document = dom.window.document;
     try {
-        return pageExtractor(minChars);
+        return pageExtractor(minChars, fullPage);
     } finally {
         global.document = previous;
         dom.window.close();

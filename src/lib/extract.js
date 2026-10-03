@@ -31,7 +31,8 @@ export const DEFAULT_SETTINGS = {
     blockedDomains: [],
     prettyJson: true,
     defaultSelection: "window",
-    hideUnreadable: false
+    hideUnreadable: false,
+    captureFullPage: false
 };
 
 /** Accepted values for the defaultSelection setting. */
@@ -357,7 +358,11 @@ export function buildRecord(tab, frames, settings, capturedAt) {
     // Tab identity (title, URL, canonical) comes from the top frame, which owns
     // the address-bar URL. Body content comes from the frame the picker selects.
     const topFrame = frames.find((f) => f.frameId === 0) || frames[0];
-    const bodyFrame = selectBodyFrame(frames, topFrame);
+    const fullPage = Boolean(settings.captureFullPage);
+
+    // Whole-page capture takes every frame, so there is no frame to choose and
+    // the top frame stands as the body frame for metadata purposes.
+    const bodyFrame = fullPage ? topFrame : selectBodyFrame(frames, topFrame);
 
     const meta = topFrame.result;
     const body = bodyFrame.result;
@@ -365,14 +370,26 @@ export function buildRecord(tab, frames, settings, capturedAt) {
 
     const structured = body.structured || [];
     const videoOnly = isVideoOnly(structured);
-    const lowSignal = Boolean(body.lowSignal) || videoOnly;
+    const headings = fullPage
+        ? stitchFrameHeadings(frames, topFrame)
+        : body.headings || [];
 
-    let text = cleanText(body.rawText);
+    let text = fullPage
+        ? cleanText(stitchFrameText(frames, topFrame))
+        : cleanText(body.rawText);
     let textTruncated = false;
 
+    // Low signal describes a page that yielded almost nothing. Under whole-page
+    // capture the question is answered by what was actually collected across
+    // every frame, not by one frame's own verdict.
+    const lowSignal = fullPage
+        ? text.trim().length < LOW_SIGNAL_MIN_CHARS
+        : Boolean(body.lowSignal) || videoOnly;
+
     // Video-only pages carry little useful body text, so trim to a snippet and
-    // rely on the VideoObject in the structured data instead.
-    if (settings.trimVideoText && videoOnly && text.length > VIDEO_SNIPPET_CHARS) {
+    // rely on the VideoObject in the structured data instead. Whole-page capture
+    // is an explicit request for everything, so the trim does not apply.
+    if (!fullPage && settings.trimVideoText && videoOnly && text.length > VIDEO_SNIPPET_CHARS) {
         text = text.slice(0, VIDEO_SNIPPET_CHARS).trim();
         textTruncated = true;
     }
@@ -388,7 +405,7 @@ export function buildRecord(tab, frames, settings, capturedAt) {
     // the page's own heading is preferred where the two disagree. The tab title is
     // kept alongside whenever it was overridden, so nothing is discarded.
     const tabTitle = tab.title || meta.documentTitle || body.documentTitle || "";
-    const heading = primaryHeading(body.headings);
+    const heading = primaryHeading(headings);
     const headingWins = preferPageHeading(tabTitle, heading);
 
     // Optional metadata prefers the top frame and falls back to the content
@@ -404,7 +421,7 @@ export function buildRecord(tab, frames, settings, capturedAt) {
         language: meta.lang || body.lang,
         author: meta.author || body.author,
         published_at: meta.published || body.published,
-        content_source: body.contentSource,
+        content_source: fullPage ? "full-page" : body.contentSource,
         content_type: videoOnly ? "video" : null,
         captured_at: capturedAt,
         ok: true
@@ -417,7 +434,7 @@ export function buildRecord(tab, frames, settings, capturedAt) {
     }
 
     if (settings.includeHeadings) {
-        record.headings = body.headings || [];
+        record.headings = headings;
     }
     if (settings.includeStructuredData) {
         record.structured_data = structured.map(sanitizeStructured);
@@ -736,6 +753,61 @@ export function timestampName() {
 }
 
 // ---------------------------------------------------------------------------
+// Whole-page capture
+// ---------------------------------------------------------------------------
+
+/**
+ * Join the text of every frame worth reading, top frame first.
+ *
+ * Used when the user has asked for the whole page. Normal capture picks one
+ * frame and one content root inside it, which is two judgements about what the
+ * page is for, and a page it judges wrongly yields little or nothing. This makes
+ * no judgement: everything readable goes in.
+ *
+ * Frame texts do not overlap, because a frame's own text never includes the text
+ * of a frame nested inside it, so nothing is duplicated. Junk frames stay out:
+ * a captcha or a consent banner is not page content under any reading, and
+ * including them was never what was asked for.
+ * @param {Array<{frameId:number, result:Object}>} frames
+ * @param {Object} topFrame The frame carrying the tab's own URL.
+ * @returns {string}
+ */
+export function stitchFrameText(frames, topFrame) {
+    const ordered = [topFrame].concat(
+        (frames || []).filter(
+            (f) => f !== topFrame && !isJunkFrame(f.result && f.result.frameUrl)
+        )
+    );
+
+    return ordered
+        .map((f) => (f && f.result && f.result.rawText) || "")
+        .map((t) => t.trim())
+        .filter(Boolean)
+        .join("\n\n");
+}
+
+/**
+ * Collect the headings of every frame worth reading, in the same order.
+ * @param {Array<{frameId:number, result:Object}>} frames
+ * @param {Object} topFrame
+ * @returns {Array<Object>}
+ */
+export function stitchFrameHeadings(frames, topFrame) {
+    const ordered = [topFrame].concat(
+        (frames || []).filter(
+            (f) => f !== topFrame && !isJunkFrame(f.result && f.result.frameUrl)
+        )
+    );
+
+    const all = [];
+    ordered.forEach((f) => {
+        const headings = (f && f.result && f.result.headings) || [];
+        headings.forEach((h) => all.push(h));
+    });
+    return all.slice(0, 60);
+}
+
+// ---------------------------------------------------------------------------
 // Page title
 // ---------------------------------------------------------------------------
 
@@ -857,6 +929,12 @@ export function preferPageHeading(tabTitle, heading) {
 // ---------------------------------------------------------------------------
 // Window and group sections
 // ---------------------------------------------------------------------------
+
+/**
+ * Below this many characters of body text, an extraction is marked low signal.
+ * Shared so the injected extractor and the record builder judge by one number.
+ */
+export const LOW_SIGNAL_MIN_CHARS = 200;
 
 /** The group id the browser reports for a tab that belongs to no group. */
 export const TAB_GROUP_ID_NONE = -1;
